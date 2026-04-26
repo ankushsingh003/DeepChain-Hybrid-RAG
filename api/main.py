@@ -35,7 +35,7 @@ from graph.neo4j_client import Neo4jClient
 from vector_store.weaviate_client import WeaviateClient
 
 # We use the same model across the stack
-LLM_MODEL = "gemini-flash-latest"
+LLM_MODEL = os.getenv("LLM_MODEL", "gemini-1.5-flash")
 
 weaviate_client = WeaviateClient()
 embedder = GeminiEmbedder()

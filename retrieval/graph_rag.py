@@ -217,7 +217,7 @@ class GraphRAG:
         self,
         retriever: VectorRetriever,
         neo4j_client: Neo4jClient,
-        model_name: str = "gemini-flash-latest",
+        model_name: str | None = None,
         graph_depth: int = 2,
         graph_limit: int = 30,
     ):
@@ -226,6 +226,7 @@ class GraphRAG:
         self.graph_depth = graph_depth
         self.graph_limit = graph_limit
 
+        model_name = model_name or os.getenv("LLM_MODEL", "gemini-1.5-flash")
         self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
 
         self._answer_prompt = ChatPromptTemplate.from_template(

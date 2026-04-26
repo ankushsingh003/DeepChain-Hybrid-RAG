@@ -164,7 +164,7 @@ class NaiveRAG:
     def __init__(
         self,
         retriever: VectorRetriever,
-        model_name: str = "gemini-flash-latest",
+        model_name: str | None = None,
         use_query_rewriting: bool = True,
         use_cache: bool = True,
         cache_ttl: float = 300.0,
@@ -174,6 +174,7 @@ class NaiveRAG:
         self.use_query_rewriting = use_query_rewriting
         self.sparse_threshold = sparse_threshold
 
+        model_name = model_name or os.getenv("LLM_MODEL", "gemini-1.5-flash")
         self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
         self._cache = _QueryCache(ttl_seconds=cache_ttl) if use_cache else None
 

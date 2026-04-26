@@ -412,7 +412,7 @@ class HybridRetriever:
         self,
         retriever: VectorRetriever,
         neo4j_client: Neo4jClient,
-        model_name: str = "gemini-flash-latest",
+        model_name: str | None = None,
         top_k: int = 5,
         graph_depth: int = 2,
         use_reranking: bool = True,
@@ -421,6 +421,8 @@ class HybridRetriever:
     ):
         self.top_k = top_k
         self.use_reranking = use_reranking
+
+        model_name = model_name or os.getenv("LLM_MODEL", "gemini-1.5-flash")
 
         # Build component pipelines — no duplication
         self.naive_rag = NaiveRAG(

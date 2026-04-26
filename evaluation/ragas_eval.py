@@ -221,7 +221,7 @@ class RagasEvaluator:
 
     def __init__(
         self,
-        model_name: str = "gemini-flash-latest",
+        model_name: str | None = None,
         embedding_model: str = "models/gemini-embedding-001",
         thresholds: dict[str, float] | None = None,
         raise_on_regression: bool = False,
@@ -229,6 +229,7 @@ class RagasEvaluator:
         self.thresholds = thresholds or DEFAULT_THRESHOLDS
         self.raise_on_regression = raise_on_regression
 
+        model_name = model_name or os.getenv("LLM_MODEL", "gemini-1.5-flash")
         # Build Ragas-compatible wrappers for Gemini
         langchain_llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
         langchain_emb = GoogleGenerativeAIEmbeddings(model=embedding_model)
