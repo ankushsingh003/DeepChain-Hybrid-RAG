@@ -22,6 +22,7 @@ class WeaviateClient:
             grpc_port=50051
         )
         self.collection_name = "DocumentChunk"
+        self.create_schema()
 
     def close(self):
         self.client.close()

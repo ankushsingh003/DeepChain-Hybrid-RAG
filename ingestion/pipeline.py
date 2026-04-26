@@ -3,6 +3,7 @@ DeepChain-Hybrid-RAG: Enterprise Knowledge Intelligence
 Module: Data Ingestion Pipeline Orchestrator
 """
 
+import json
 from typing import List
 from ingestion.loader import DocumentLoader
 from ingestion.chunker import DocumentChunker

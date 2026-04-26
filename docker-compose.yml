@@ -29,7 +29,7 @@ services:
       - '8080'
       - --scheme
       - http
-    image: semitechnologies/weaviate:1.23.7
+    image: semitechnologies/weaviate:1.27.0
     container_name: graphrag-weaviate
     ports:
       - "8080:8080"

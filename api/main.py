@@ -13,6 +13,7 @@ from vector_store.weaviate_client import WeaviateClient
 from vector_store.retriever import VectorRetriever
 from vector_store.embedder import GeminiEmbedder
 from graph.neo4j_client import Neo4jClient
+from graph.builder import GraphBuilder
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -51,10 +52,35 @@ def start_ingestion():
     """Triggers the document ingestion pipeline."""
     try:
         pipeline = IngestionPipeline()
-        # In a real app, this should be a background task
+
+        # 1. Extract knowledge graph (entities + relationships)
         kg = pipeline.run()
-        # Update Neo4j and Weaviate logic would go here in the unified pipeline
-        return {"status": "success", "entities_extracted": len(kg.entities)}
+
+        # 2. Write entities and relationships to Neo4j
+        neo4j_client.initialize_schema()
+        graph_builder = GraphBuilder(neo4j_client)
+        graph_builder.build_graph(kg)
+
+        # 3. Load, chunk, embed and write to Weaviate
+        documents = pipeline.loader.load_documents()
+        chunks = pipeline.chunker.split_documents(documents)
+        chunks_data = [
+            {
+                "content": c.page_content,
+                "source": c.metadata.get("source", "unknown"),
+                "chunk_id": i,
+            }
+            for i, c in enumerate(chunks)
+        ]
+        vectors = embedder.embed_documents([c["content"] for c in chunks_data])
+        weaviate_client.upsert_chunks(chunks_data, vectors)
+
+        return {
+            "status": "success",
+            "entities_extracted": len(kg.entities),
+            "relationships_extracted": len(kg.relationships),
+            "chunks_stored": len(chunks_data),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

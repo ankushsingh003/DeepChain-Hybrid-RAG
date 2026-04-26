@@ -67,7 +67,7 @@ class GraphRAG:
         
         # 2. Vector Retrieval
         vector_hits = self.retriever.retrieve(question, top_k=top_k)
-        vector_context = "\n---\n".join([hit["content"] for hit in hits]) if (hits := vector_hits) else "No vector context found."
+        vector_context = "\n---\n".join([hit["content"] for hit in vector_hits]) if vector_hits else "No vector context found."
         
         # 3. Graph Retrieval
         graph_context = self._retrieve_graph_context(query_entities)

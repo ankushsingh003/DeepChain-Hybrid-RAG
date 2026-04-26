@@ -3,6 +3,7 @@ DeepChain-Hybrid-RAG: Enterprise Knowledge Intelligence
 Module: Neo4j Builder - Population Logic
 """
 
+import re
 from typing import List
 from graph.neo4j_client import Neo4jClient
 from ingestion.extractor import KnowledgeGraph, Entity, Relationship
@@ -38,7 +39,9 @@ class GraphBuilder:
             # Note: Cypher doesn't allow dynamic relationship types directly in MERGE string
             # So we use a safe string injection for the relationship type (rel.type) 
             # while ensuring it's sanitized or trusted from the LLM.
-            sanitized_type = rel.type.replace(" ", "_").upper()
+            sanitized_type = re.sub(r'[^A-Z0-9_]', '', rel.type.replace(" ", "_").upper())
+            if not sanitized_type:
+                sanitized_type = "RELATED_TO"
             cypher = (
                 f"MATCH (s:{ENTITY_LABEL} {{name: $source}}) "
                 f"MATCH (t:{ENTITY_LABEL} {{name: $target}}) "

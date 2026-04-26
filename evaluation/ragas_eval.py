@@ -5,7 +5,7 @@ Module: Ragas Evaluation Suite - Benchmarking Model Performance
 
 import os
 import json
-from typing import List, Dict
+from typing import List, Dict, Any
 from ragas import evaluate
 from ragas.metrics import faithfulness, answer_relevancy, context_precision, context_recall
 from datasets import Dataset
