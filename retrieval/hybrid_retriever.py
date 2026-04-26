@@ -54,7 +54,7 @@ class HybridRetriever:
 
         import os
         self._embeddings = GoogleGenerativeAIEmbeddings(
-            model=os.getenv("EMBEDDING_MODEL", "models/text-embedding-04")
+            model=os.getenv("EMBEDDING_MODEL", "models/gemini-embedding-001")
         )
         self._weaviate_client = weaviate.connect_to_local(
             host=weaviate_host, port=weaviate_port

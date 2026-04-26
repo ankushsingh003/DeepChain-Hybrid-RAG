@@ -1,7 +1,0 @@
-Legal Precedents and Case Law:
-In the landmark case of TechCorp v. InnovateInc (2023), the Supreme Court ruled that algorithmic trade secrets are protected under the Defend Trade Secrets Act (DTSA).
-The court established a three-part test for determining "reasonable measures" of secrecy.
-Justice Miller wrote the majority opinion, emphasizing the role of non-disclosure agreements (NDAs) in maintaining trade secret status.
-The ruling heavily cited the precedent from Smith v. Jones (1998) regarding the definition of misappropriation.
-Counsel for TechCorp argued that unauthorized access to the source code constituted a breach of fiduciary duty.
-The permanent injunction was granted, preventing InnovateInc from using the disputed code for five years.

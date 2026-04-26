@@ -29,7 +29,7 @@ app.add_middleware(
 )
 
 # --- Dependency Initialization ---
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
+llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
 hybrid_retriever = HybridRetriever(
     neo4j_uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
     neo4j_user=os.getenv("NEO4J_USERNAME", "neo4j"),

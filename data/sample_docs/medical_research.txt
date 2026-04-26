@@ -1,7 +1,0 @@
-Healthcare Research & Clinical Data:
-The efficacy of the new mRNA vaccine candidate (MRNA-202) for pediatric respiratory viruses was evaluated in a Phase II trial.
-Dr. Sarah Jenkins led the study at the Global Health Institute.
-Results indicated a 92% immune response rate with minimal adverse effects.
-HIPAA regulations require that all electronic Protected Health Information (ePHI) related to this trial be encrypted using AES-256.
-Access logs for the patient data repository must be audited bi-weekly to ensure compliance with the Security Rule.
-The study also explored the impact of social determinants on vaccine accessibility in urban environments.

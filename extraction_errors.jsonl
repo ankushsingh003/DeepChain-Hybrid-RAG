@@ -7,3 +7,14 @@
 {"chunk_id": "chunk_0", "source": "data\\sample_docs\\finance_report.txt", "reason": "max_retries_exceeded", "timestamp": 1777234637.646011}
 {"chunk_id": "chunk_1", "source": "data\\sample_docs\\legal_case.txt", "reason": "max_retries_exceeded", "timestamp": 1777234644.0963023}
 {"chunk_id": "chunk_2", "source": "data\\sample_docs\\medical_research.txt", "reason": "max_retries_exceeded", "timestamp": 1777234650.7376661}
+{"chunk_id": "chunk_0", "source": "data\\sample_docs\\finance_report.txt", "reason": "max_retries_exceeded", "timestamp": 1777235104.1403039}
+{"chunk_id": "chunk_1", "source": "data\\sample_docs\\legal_case.txt", "reason": "max_retries_exceeded", "timestamp": 1777235110.6898985}
+{"chunk_id": "chunk_2", "source": "data\\sample_docs\\medical_research.txt", "reason": "max_retries_exceeded", "timestamp": 1777235117.2198446}
+{"chunk_id": "chunk_0", "source": "data\\sample_docs\\finance_report.txt", "reason": "max_retries_exceeded", "timestamp": 1777235814.8006706}
+{"chunk_id": "chunk_1", "source": "data\\sample_docs\\legal_case.txt", "reason": "max_retries_exceeded", "timestamp": 1777235821.2071936}
+{"chunk_id": "chunk_2", "source": "data\\sample_docs\\medical_research.txt", "reason": "max_retries_exceeded", "timestamp": 1777235827.6323647}
+{"chunk_id": "chunk_0", "source": "data\\sample_docs\\finance_report.txt", "reason": "max_retries_exceeded", "timestamp": 1777236145.421262}
+{"chunk_id": "chunk_1", "source": "data\\sample_docs\\legal_case.txt", "reason": "max_retries_exceeded", "timestamp": 1777236152.0255759}
+{"chunk_id": "chunk_2", "source": "data\\sample_docs\\medical_research.txt", "reason": "max_retries_exceeded", "timestamp": 1777236158.6095495}
+{"chunk_id": "chunk_0", "source": "data\\sample_docs\\medical.pdf", "reason": "max_retries_exceeded", "timestamp": 1777236993.9813359}
+{"chunk_id": "chunk_1", "source": "data\\sample_docs\\medical.pdf", "reason": "max_retries_exceeded", "timestamp": 1777237105.0361753}
