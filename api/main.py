@@ -62,11 +62,12 @@ def start_ingestion():
     """Triggers the document ingestion pipeline."""
     try:
         pipeline = IngestionPipeline()
-        # In a real app, this should be a background task
-        # Note: We are using the updated pipeline logic
         pipeline.run()
         return {"status": "success", "message": "Ingestion completed."}
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"\n[!!!] INGESTION ERROR:\n{error_details}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/query", response_model=QueryResponse)
