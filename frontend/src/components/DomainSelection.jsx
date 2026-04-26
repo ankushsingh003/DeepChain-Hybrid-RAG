@@ -93,9 +93,9 @@ const DomainSelection = ({ onBack, onSelectDomain }) => {
 
             <div className="flex items-center justify-between pt-5 border-t border-border">
               <span className="text-[11px] text-dim font-mono">{domain.sources}</span>
-              <button className={`domain-enter group-hover:bg-${domain.id}-bg text-${domain.color} border-${domain.id}/35 text-[13px] font-medium px-4.5 py-2 rounded-full border transition-all flex items-center gap-1.5`}>
+              <button className={`domain-enter group-hover:bg-${domain.id}-bg text-${domain.color} border-${domain.id}/35 text-[12px] font-medium px-5 py-2.5 rounded-full border transition-all flex items-center gap-2`}>
                 Enter
-                <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-0.5" />
+                <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover:translate-x-1" />
               </button>
             </div>
           </motion.div>

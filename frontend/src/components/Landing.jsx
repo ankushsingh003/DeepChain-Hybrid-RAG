@@ -32,9 +32,9 @@ const Landing = ({ onGetConsulted }) => {
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="font-serif text-[clamp(48px,6vw,88px)] leading-[1.02] tracking-[-2px] text-text mb-7 max-w-[820px]"
+          className="font-serif text-[clamp(32px,5vw,72px)] leading-none tracking-[-2px] text-text mb-7 w-full whitespace-nowrap"
         >
-          Hybrid RAG for <em>Enterprise</em> Knowledge Intelligence.
+          Enterprise Knowledge Intelligence.
         </motion.h1>
 
         <motion.p 
