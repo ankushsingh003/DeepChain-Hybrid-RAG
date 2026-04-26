@@ -10,11 +10,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class Neo4jClient:
-    def __init__(self):
-        self.uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        self.username = os.getenv("NEO4J_USERNAME", "neo4j")
-        self.password = os.getenv("NEO4J_PASSWORD", "password123")
-        self.driver = GraphDatabase.driver(self.uri, auth=(self.username, self.password))
+    def __init__(self, uri: str | None = None, user: str | None = None, password: str | None = None):
+        self.uri = uri or os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        self.user = user or os.getenv("NEO4J_USERNAME", "neo4j")
+        self.password = password or os.getenv("NEO4J_PASSWORD", "password123")
+        self.driver = GraphDatabase.driver(self.uri, auth=(self.user, self.password))
 
     def close(self):
         self.driver.close()
