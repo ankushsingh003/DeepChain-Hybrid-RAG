@@ -29,26 +29,42 @@ app.add_middleware(
 )
 
 # --- Dependency Initialization ---
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
+from vector_store.retriever import VectorRetriever
+from vector_store.embedder import GeminiEmbedder
+from graph.neo4j_client import Neo4jClient
+from vector_store.weaviate_client import WeaviateClient
+
+# We use the same model across the stack
+LLM_MODEL = "gemini-2.5-flash"
+
+weaviate_client = WeaviateClient()
+embedder = GeminiEmbedder()
+vector_retriever = VectorRetriever(weaviate_client, embedder)
+neo4j_client = Neo4jClient(
+    uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+    user=os.getenv("NEO4J_USERNAME", "neo4j"),
+    password=os.getenv("NEO4J_PASSWORD", "password123")
+)
+
 hybrid_retriever = HybridRetriever(
-    neo4j_uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
-    neo4j_user=os.getenv("NEO4J_USERNAME", "neo4j"),
-    neo4j_password=os.getenv("NEO4J_PASSWORD", "password123"),
-    weaviate_host=os.getenv("WEAVIATE_HOST", "localhost"),
-    weaviate_port=int(os.getenv("WEAVIATE_PORT", 8080))
+    retriever=vector_retriever,
+    neo4j_client=neo4j_client,
+    model_name=LLM_MODEL,
+    top_k=5
 )
 
 # --- Schemas ---
 
 class QueryRequest(BaseModel):
     question: str
-    method: str = "hybrid" # "naive", "graph", or "hybrid"
+    method: str = "auto" # "naive", "graph", "hybrid", or "auto"
     top_k: int = 5
 
 class QueryResponse(BaseModel):
     answer: str
     method: str
     fallback_reason: str = ""
+    latency: float = 0.0
 
 # --- Routes ---
 
@@ -74,30 +90,22 @@ def start_ingestion():
 def run_query(request: QueryRequest):
     """Executes a RAG query using the specified method."""
     try:
-        # 1. Retrieve Context
-        result = hybrid_retriever.retrieve(request.question, mode=request.method)
-        
-        # 2. Generate Answer
-        contexts = [c["text"] for c in result.chunks]
-        context_str = "\n\n".join(contexts) if contexts else "No relevant context found."
-        
-        prompt = (
-            f"You are a sophisticated AI analyst. Answer the question using ONLY the context provided.\n"
-            f"If the context is insufficient, explain what is missing.\n\n"
-            f"Context:\n{context_str}\n\n"
-            f"Question: {request.question}\n\n"
-            f"Professional Answer:"
+        # The new HybridRetriever handles retrieval + generation internally
+        result = hybrid_retriever.query(
+            question=request.question,
+            mode=request.method,
+            top_k=request.top_k
         )
-        
-        response = llm.invoke(prompt)
         
         return QueryResponse(
-            answer=response.content.strip(),
+            answer=result.answer,
             method=result.mode_used,
-            fallback_reason=result.fallback_reason
+            fallback_reason=result.fallback_reason,
+            latency=result.latency
         )
     except Exception as e:
-        print(f"[!] API Error: {e}")
+        import traceback
+        print(f"[!] API Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Internal Server Error during retrieval.")
 
 if __name__ == "__main__":
