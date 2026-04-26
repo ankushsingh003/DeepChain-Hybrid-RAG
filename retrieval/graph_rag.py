@@ -348,27 +348,29 @@ class GraphRAG:
         facts = []
         for name in entity_names:
             cypher = (
-                f"MATCH (n:{ENTITY_LABEL} {{name: $name}})-[r*1..{self.graph_depth}]-(neighbor) "
+                f"MATCH path = (n:{ENTITY_LABEL} {{name: $name}})-[r*1..{self.graph_depth}]-(neighbor) "
                 f"RETURN n.name AS source, "
                 f"       [rel IN relationships(path) | type(rel)] AS relations, "
                 f"       neighbor.name AS target, "
-                f"       r[0].description AS desc "
+                f"       [rel IN relationships(path) | rel.source_chunk_id] AS chunk_ids "
                 f"LIMIT {self.graph_limit}"
             )
             try:
                 results = self.neo4j_client.query(cypher, {"name": name})
                 for res in results:
-                    desc = res.get("desc") or ""   # null-safe — desc can be None
+                    chunk_ids = [cid for cid in res.get("chunk_ids", []) if cid]
+                    chunk_str = f" [Chunks: {', '.join(chunk_ids)}]" if chunk_ids else ""
+                    
                     fact = {
                         "source_entity": res.get("source", name),
                         "target_entity": res.get("target", ""),
                         "relations": res.get("relations", []),
-                        "description": desc,
+                        "chunk_ids": chunk_ids,
                         "text": (
                             f"{res.get('source', name)} "
                             f"--[{', '.join(res.get('relations', []))}]--> "
-                            f"{res.get('target', '')} "
-                            + (f"({desc})" if desc else "")
+                            f"{res.get('target', '')}"
+                            f"{chunk_str}"
                         ),
                     }
                     facts.append(fact)

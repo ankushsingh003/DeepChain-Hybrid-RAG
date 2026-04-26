@@ -1,13 +1,9 @@
 """
 graph/extractor.py  —  DeepChain Hybrid-RAG
-Fixed: silent failure on Gemini API errors during triplet extraction.
+Module: Triplet Extractor (Core LLM Logic)
 
-Changes vs original:
-  - Wrapped LLM call in retry loop with exponential backoff (3 attempts).
-  - Failed chunks are written to a skip-log (extraction_errors.jsonl) so
-    you can re-run them without re-processing the whole corpus.
-  - Malformed LLM output (JSON parse errors) is caught and logged, not raised.
-  - Added structured logging throughout so MLflow can pick up counts.
+Extracts {subject, predicate, object} triplets from text chunks.
+Includes exponential backoff retry logic and JSON sanitization.
 """
 
 from __future__ import annotations
@@ -136,12 +132,26 @@ class TripletExtractor:
         cleaned = raw.strip()
         # Strip ```json ... ``` wrappers that Gemini sometimes adds
         if cleaned.startswith("```"):
-            cleaned = cleaned.split("```")[1]
-            if cleaned.startswith("json"):
-                cleaned = cleaned[4:]
+            parts = cleaned.split("```")
+            if len(parts) >= 3:
+                cleaned = parts[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
         cleaned = cleaned.strip()
 
-        parsed = json.loads(cleaned)  # raises JSONDecodeError → caught by caller
+        try:
+            parsed = json.loads(cleaned)
+        except json.JSONDecodeError:
+            # Fallback: if there's text after the array, try to find the array boundaries
+            if "[" in cleaned and "]" in cleaned:
+                start = cleaned.find("[")
+                end = cleaned.rfind("]") + 1
+                try:
+                    parsed = json.loads(cleaned[start:end])
+                except:
+                    raise
+            else:
+                raise
 
         if not isinstance(parsed, list):
             logger.warning(

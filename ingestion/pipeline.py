@@ -276,38 +276,13 @@ class IngestionPipeline:
                 if not triplet_batch:
                     continue
 
-                # Convert flat triplet dicts → KnowledgeGraph → Neo4j
-                entities_map = {}
-                relationships = []
-
-                for t in triplet_batch:
-                    subj = t["subject"]
-                    obj  = t["object"]
-                    pred = t["predicate"]
-
-                    if subj not in entities_map:
-                        entities_map[subj] = Entity(name=subj, type="Entity", description="Extracted entity")
-                    if obj not in entities_map:
-                        entities_map[obj]  = Entity(name=obj,  type="Entity", description="Extracted entity")
-
-                    relationships.append(Relationship(
-                        source=subj,
-                        target=obj,
-                        type=pred,
-                        description=t.get("description", ""),
-                    ))
-
-                kg = KnowledgeGraph(
-                    entities=list(entities_map.values()),
-                    relationships=relationships,
-                )
-
                 try:
                     builder = GraphBuilder(self.neo4j_client)
-                    builder.build_graph(kg)
-                    triplets_stored += len(relationships)
+                    builder.build_graph(triplet_batch)
+                    triplets_stored += len(triplet_batch)
                 except Exception as e:
-                    print(f"  [neo4j] ERROR writing to graph: {e}. Continuing.")
+                    import traceback
+                    print(f"  [neo4j] ERROR writing to graph: {e}\n{traceback.format_exc()}")
 
             # ── Save checkpoint after each successful batch ────────────────────
             batches_done += 1
