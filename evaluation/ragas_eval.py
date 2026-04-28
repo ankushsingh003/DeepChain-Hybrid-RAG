@@ -252,7 +252,7 @@ class RagasEvaluator:
     # Public: main evaluation entry point
     # -----------------------------------------------------------------------
 
-    def run_evaluation(
+    async def run_evaluation(
         self,
         samples: list[EvaluationSample],
         mode_label: str = "pipeline",
@@ -277,7 +277,7 @@ class RagasEvaluator:
 
         # If pipeline provided, generate answers + contexts live
         if pipeline is not None:
-            samples = self._generate_answers(samples, pipeline)
+            samples = await self._generate_answers(samples, pipeline, mode=mode_label)
 
         # 1. RAGAS semantic metrics
         ragas_scores = self._run_ragas(samples, mode_label)
@@ -292,7 +292,7 @@ class RagasEvaluator:
         # 4. Ablations
         ablations: list[AblationResult] = []
         if run_ablations and pipeline is not None:
-            ablations = self._run_ablations(samples, pipeline)
+            ablations = await self._run_ablations(samples, pipeline)
 
         # 5. Regression check
         all_metrics = {**ragas_scores, **{
@@ -474,7 +474,7 @@ class RagasEvaluator:
     # Per-feature ablation tests
     # -----------------------------------------------------------------------
 
-    def _run_ablations(
+    async def _run_ablations(
         self,
         base_samples: list[EvaluationSample],
         pipeline,
@@ -491,7 +491,7 @@ class RagasEvaluator:
             logger.info(f"[Ablation] {label}")
             try:
                 pipeline.naive_rag.use_query_rewriting = rewrite
-                samples = self._generate_answers(base_samples, pipeline, mode="naive")
+                samples = await self._generate_answers(base_samples, pipeline, mode="naive")
                 ragas = self._run_ragas(samples, label)
                 retrieval = self._compute_retrieval_metrics(samples)
                 avg_lat = sum(
@@ -510,7 +510,7 @@ class RagasEvaluator:
             logger.info(f"[Ablation] {label}")
             try:
                 pipeline.use_reranking = rerank
-                samples = self._generate_answers(base_samples, pipeline, mode="naive")
+                samples = await self._generate_answers(base_samples, pipeline, mode="naive")
                 ragas = self._run_ragas(samples, label)
                 retrieval = self._compute_retrieval_metrics(samples)
                 ablations.append(AblationResult(label, ragas, retrieval, 0.0, len(samples)))
@@ -526,7 +526,7 @@ class RagasEvaluator:
             try:
                 orig = pipeline.naive_rag.retriever.default_distance_threshold
                 pipeline.naive_rag.retriever.default_distance_threshold = threshold
-                samples = self._generate_answers(base_samples, pipeline, mode="naive")
+                samples = await self._generate_answers(base_samples, pipeline, mode="naive")
                 ragas = self._run_ragas(samples, label)
                 retrieval = self._compute_retrieval_metrics(samples)
                 ablations.append(AblationResult(label, ragas, retrieval, 0.0, len(samples)))
@@ -541,9 +541,9 @@ class RagasEvaluator:
         try:
             pipeline.naive_rag._cache.invalidate()
             # First pass — fills cache
-            s1 = self._generate_answers(base_samples, pipeline, mode="naive")
+            s1 = await self._generate_answers(base_samples, pipeline, mode="naive")
             # Second pass — serves from cache
-            s2 = self._generate_answers(base_samples, pipeline, mode="naive")
+            s2 = await self._generate_answers(base_samples, pipeline, mode="naive")
             ragas_fresh  = self._run_ragas(s1, f"{label}_fresh")
             ragas_cached = self._run_ragas(s2, f"{label}_cached")
             retrieval    = self._compute_retrieval_metrics(s2)
@@ -564,7 +564,7 @@ class RagasEvaluator:
             label = f"mode={mode}"
             logger.info(f"[Ablation] {label}")
             try:
-                samples = self._generate_answers(base_samples, pipeline, mode=mode)
+                samples = await self._generate_answers(base_samples, pipeline, mode=mode)
                 ragas = self._run_ragas(samples, label)
                 retrieval = self._compute_retrieval_metrics(samples)
                 ablations.append(AblationResult(label, ragas, retrieval, 0.0, len(samples)))
@@ -577,7 +577,7 @@ class RagasEvaluator:
     # Answer generation helpers
     # -----------------------------------------------------------------------
 
-    def _generate_answers(
+    async def _generate_answers(
         self,
         base_samples: list[EvaluationSample],
         pipeline,
@@ -596,7 +596,7 @@ class RagasEvaluator:
                 # Detect pipeline type and call accordingly
                 if hasattr(pipeline, "query") and hasattr(pipeline, "naive_rag"):
                     # HybridRetriever
-                    result = pipeline.query(s.question, mode=mode)
+                    result = await pipeline.query(s.question, mode=mode)
                     answer   = result.answer
                     chunks   = result.chunks
                     contexts = [c.content for c in chunks]

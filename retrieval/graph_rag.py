@@ -244,7 +244,7 @@ class GraphRAG:
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def query(self, question: str, top_k: int = 5) -> dict[str, Any]:
+    async def query(self, question: str, top_k: int = 5) -> dict[str, Any]:
         """
         Hybrid RAG query with concurrent retrieval and RRF fusion.
 
@@ -269,9 +269,7 @@ class GraphRAG:
         logger.info(f"[GraphRAG] Entities: {entities}")
 
         # 2. Concurrent retrieval — vector + graph run in parallel
-        vector_hits, graph_facts = asyncio.run(
-            self._retrieve_parallel(question, entities, top_k)
-        )
+        vector_hits, graph_facts = await self._retrieve_parallel(question, entities, top_k)
 
         # 3. RRF fusion
         vector_ranked = [
@@ -316,8 +314,7 @@ class GraphRAG:
 
     async def query_async(self, question: str, top_k: int = 5) -> dict[str, Any]:
         """Async wrapper for query()."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, lambda: self.query(question, top_k))
+        return await self.query(question, top_k)
 
     # ── Concurrent retrieval ───────────────────────────────────────────────────
 

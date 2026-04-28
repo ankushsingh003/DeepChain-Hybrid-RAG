@@ -103,7 +103,7 @@ def start_ingestion():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/query", response_model=QueryResponse)
-def run_query(request: QueryRequest):
+async def run_query(request: QueryRequest):
     """Executes a RAG query using the specified method."""
     try:
         retriever = get_retriever()
@@ -111,7 +111,7 @@ def run_query(request: QueryRequest):
             raise HTTPException(status_code=503, detail="Database services are currently unavailable.")
             
         # The new HybridRetriever handles retrieval + generation internally
-        result = retriever.query(
+        result = await retriever.query(
             question=request.question,
             mode=request.method,
             top_k=request.top_k

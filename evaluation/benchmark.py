@@ -442,7 +442,7 @@ class RAGBenchmark:
     # Public: run full benchmark
     # -----------------------------------------------------------------------
 
-    def run(
+    async def run(
         self,
         questions: list[dict] | None = None,
         modes: list[str] | None = None,
@@ -483,7 +483,7 @@ class RAGBenchmark:
                         logger.warning(f"[Benchmark] Neo4j unhealthy — mode='{mode}' will fallback to naive")
 
                 try:
-                    report = self.evaluator.run_evaluation(
+                    report = await self.evaluator.run_evaluation(
                         samples=samples,
                         mode_label=mode,
                         run_ablations=(run_ablations and mode == "hybrid"),  # ablations on hybrid only
@@ -686,51 +686,45 @@ class RAGBenchmark:
 # Entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    import os
-    from vector_store.weaviate_client import WeaviateClient
-    from vector_store.embedder import GeminiEmbedder
-    from vector_store.retriever import VectorRetriever
-    from graph.neo4j_client import Neo4jClient
-    from retrieval.hybrid_retriever import HybridRetriever
+    import asyncio
+    async def main():
+        # Build the full pipeline
+        weaviate_client = WeaviateClient()
+        embedder        = GeminiEmbedder()
+        vector_retriever = VectorRetriever(weaviate_client, embedder)
+        neo4j_client    = Neo4jClient(
+            uri=os.environ["NEO4J_URI"],
+            user=os.environ["NEO4J_USERNAME"],
+            password=os.environ["NEO4J_PASSWORD"],
+        )
 
-    logging.basicConfig(level=logging.INFO)
+        pipeline = HybridRetriever(
+            retriever=vector_retriever,
+            neo4j_client=neo4j_client,
+            use_reranking=True,
+            use_query_rewriting=True,
+            use_cache=True,
+        )
 
-    # Build the full pipeline
-    weaviate_client = WeaviateClient()
-    embedder        = GeminiEmbedder()
-    vector_retriever = VectorRetriever(weaviate_client, embedder)
-    neo4j_client    = Neo4jClient(
-        uri=os.environ["NEO4J_URI"],
-        user=os.environ["NEO4J_USERNAME"],
-        password=os.environ["NEO4J_PASSWORD"],
-    )
+        evaluator = RagasEvaluator(raise_on_regression=False)
 
-    pipeline = HybridRetriever(
-        retriever=vector_retriever,
-        neo4j_client=neo4j_client,
-        use_reranking=True,
-        use_query_rewriting=True,
-        use_cache=True,
-    )
+        bench = RAGBenchmark(
+            pipeline=pipeline,
+            evaluator=evaluator,
+            mlflow_experiment="deepchain-hybrid-rag",
+            raise_on_regression=False,
+        )
 
-    evaluator = RagasEvaluator(raise_on_regression=False)
+        reports = await bench.run(
+            modes=["naive", "hybrid"],   # start with 2 modes; add "graph", "auto" when Neo4j is live
+            run_ablations=True,
+        )
 
-    bench = RAGBenchmark(
-        pipeline=pipeline,
-        evaluator=evaluator,
-        mlflow_experiment="deepchain-hybrid-rag",
-        raise_on_regression=False,
-    )
+        # Print individual detailed reports
+        for mode, report in reports.items():
+            evaluator.print_report(report)
 
-    reports = bench.run(
-        modes=["naive", "hybrid"],   # start with 2 modes; add "graph", "auto" when Neo4j is live
-        run_ablations=True,
-    )
+        weaviate_client.close()
+        neo4j_client.close()
 
-    # Print individual detailed reports
-    for mode, report in reports.items():
-        evaluator.print_report(report)
-
-    weaviate_client.close()
-    neo4j_client.close()
+    asyncio.run(main())

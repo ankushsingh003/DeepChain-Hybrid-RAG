@@ -447,7 +447,7 @@ class HybridRetriever:
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def query(
+    async def query(
         self,
         question: str,
         mode: RetrievalMode = "auto",
@@ -472,21 +472,21 @@ class HybridRetriever:
         logger.info(f"[HybridRetriever] mode={effective_mode} | query='{question[:60]}'")
 
         if effective_mode == "naive":
-            return self._run_naive(question, top_k, t0)
+            return await self._run_naive(question, top_k, t0)
 
         if effective_mode == "graph":
-            result = self._run_graph(question, top_k, t0)
+            result = await self._run_graph(question, top_k, t0)
             if result is not None:
                 return result
             # Fallback
             logger.warning("[HybridRetriever] Graph unavailable, falling back to naive.")
-            r = self._run_naive(question, top_k, t0)
+            r = await self._run_naive(question, top_k, t0)
             r.mode_used = "naive_fallback"
             r.fallback_reason = "Neo4j unavailable — served by Naive RAG"
             return r
 
         # Hybrid: run both concurrently
-        return self._run_hybrid(question, top_k, t0)
+        return await self._run_hybrid(question, top_k, t0)
 
     async def query_async(
         self,
@@ -495,10 +495,7 @@ class HybridRetriever:
         top_k: int | None = None,
     ) -> HybridResult:
         """Async wrapper around query()."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None, lambda: self.query(question, mode, top_k)
-        )
+        return await self.query(question, mode, top_k)
 
     def health_check(self) -> dict[str, bool]:
         """Check connectivity of all dependent services."""
@@ -529,7 +526,7 @@ class HybridRetriever:
 
     # ── Mode runners ───────────────────────────────────────────────────────────
 
-    def _run_naive(self, question: str, top_k: int, t0: float) -> HybridResult:
+    async def _run_naive(self, question: str, top_k: int, t0: float) -> HybridResult:
         raw = self.naive_rag.query(question, top_k=top_k)
         chunks = raw["chunks"]
         if self.use_reranking:
@@ -543,9 +540,9 @@ class HybridRetriever:
             metadata={"sources": raw["sources"]},
         )
 
-    def _run_graph(self, question: str, top_k: int, t0: float) -> HybridResult | None:
+    async def _run_graph(self, question: str, top_k: int, t0: float) -> HybridResult | None:
         try:
-            raw = self.graph_rag.query(question, top_k=top_k)
+            raw = await self.graph_rag.query(question, top_k=top_k)
             chunks = raw["vector_chunks"]
             if self.use_reranking:
                 chunks = _CrossEncoderReranker.rerank(question, chunks, top_n=top_k)
@@ -561,7 +558,7 @@ class HybridRetriever:
             logger.error(f"[HybridRetriever] GraphRAG failed: {e}")
             return None
 
-    def _run_hybrid(self, question: str, top_k: int, t0: float) -> HybridResult:
+    async def _run_hybrid(self, question: str, top_k: int, t0: float) -> HybridResult:
         """
         Run naive + graph concurrently, fuse with RRF, rerank, generate answer.
         Falls back gracefully if graph is unavailable.
@@ -572,12 +569,10 @@ class HybridRetriever:
             naive_task = loop.run_in_executor(
                 None, lambda: self.naive_rag.query(question, top_k=top_k)
             )
-            graph_task = loop.run_in_executor(
-                None, lambda: self._safe_graph_query(question, top_k)
-            )
+            graph_task = self._safe_graph_query(question, top_k)
             return await asyncio.gather(naive_task, graph_task)
 
-        naive_raw, graph_raw = asyncio.run(_parallel())
+        naive_raw, graph_raw = await _parallel()
 
         # Merge chunks
         naive_chunks: list[RetrievedChunk] = naive_raw["chunks"]
@@ -620,10 +615,10 @@ class HybridRetriever:
             },
         )
 
-    def _safe_graph_query(self, question: str, top_k: int) -> dict | None:
+    async def _safe_graph_query(self, question: str, top_k: int) -> dict | None:
         """Wrapper around graph_rag.query() that returns None on any failure."""
         try:
-            return self.graph_rag.query(question, top_k=top_k)
+            return await self.graph_rag.query(question, top_k=top_k)
         except Exception as e:
             logger.error(f"[HybridRetriever] Graph pipeline error: {e}")
             return None
