@@ -226,7 +226,7 @@ class GraphRAG:
         self.graph_depth = graph_depth
         self.graph_limit = graph_limit
 
-        model_name = model_name or os.getenv("LLM_MODEL", "gemini-1.5-flash")
+        model_name = model_name or os.getenv("LLM_MODEL", "gemini-2.0-flash")
         self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
 
         self._answer_prompt = ChatPromptTemplate.from_template(

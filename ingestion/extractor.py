@@ -64,7 +64,7 @@ class GraphExtractor:
         rate_limit_delay: float = 1.5,   # seconds between LLM calls
         retry_base_delay: float = 5.0,    # base seconds for backoff
     ):
-        model_name = model_name or os.getenv("LLM_MODEL", "gemini-1.5-flash")
+        model_name = model_name or os.getenv("LLM_MODEL", "gemini-2.0-flash")
         self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
         self.parser = PydanticOutputParser(pydantic_object=KnowledgeGraph)
         self.max_retries = max_retries
@@ -167,7 +167,7 @@ class KnowledgeGraphExtractor:
         chunk_size: int = CHUNK_SIZE,
         chunk_overlap: int = CHUNK_OVERLAP,
     ) -> None:
-        model_name = model_name or os.getenv("LLM_MODEL", "gemini-1.5-flash")
+        model_name = model_name or os.getenv("LLM_MODEL", "gemini-2.0-flash")
         self.extractor = GraphExtractor(model_name=model_name)
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap

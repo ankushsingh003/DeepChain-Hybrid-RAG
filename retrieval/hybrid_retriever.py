@@ -422,7 +422,7 @@ class HybridRetriever:
         self.top_k = top_k
         self.use_reranking = use_reranking
 
-        model_name = model_name or os.getenv("LLM_MODEL", "gemini-1.5-flash")
+        model_name = model_name or os.getenv("LLM_MODEL", "gemini-2.0-flash")
 
         # Build component pipelines — no duplication
         self.naive_rag = NaiveRAG(

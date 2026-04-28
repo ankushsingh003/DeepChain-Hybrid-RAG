@@ -35,7 +35,7 @@ from graph.neo4j_client import Neo4jClient
 from vector_store.weaviate_client import WeaviateClient
 
 # We use the same model across the stack
-LLM_MODEL = os.getenv("LLM_MODEL", "gemini-1.5-flash")
+LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.0-flash")
 
 # --- Lazy Initialization Helpers ---
 # We wrap these to prevent the app from crashing on start (Status 1) if DBs are offline.
