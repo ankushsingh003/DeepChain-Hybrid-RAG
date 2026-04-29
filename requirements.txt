@@ -39,3 +39,5 @@ spacy>=3.7.0
 sentence-transformers>=2.5.0
 gunicorn>=21.2.0
 httpx
+yfinance
+nsepy
