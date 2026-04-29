@@ -37,7 +37,8 @@ class EnrichmentValidator:
                     return False
                 
                 # Check for "N/A" strings which might come from data_fetcher
-                if val == "N/A":
+                # pe_ratio is exempt — yfinance frequently can't fetch it for NSE indices
+                if val == "N/A" and field != "pe_ratio":
                     logger.error(f"Enrichment validation failed: Sector '{sector_name}' has 'N/A' for '{field}'.")
                     return False
 
