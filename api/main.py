@@ -11,17 +11,19 @@ load_dotenv()
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
-
-# Finance Pipeline Imports - Moved to lazy loading in routes
 
 print("[*] DeepChain API Starting...")
 app = FastAPI(title="DeepChain Hybrid RAG API")
 print("[+] FastAPI App Initialized")
 
-# --- Monitoring ---
-Instrumentator().instrument(app).expose(app)
+# --- Monitoring (lazy) ---
+try:
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator().instrument(app).expose(app)
+    print("[+] Prometheus loaded.")
+except Exception:
+    print("[!] Prometheus skipped.")
 
 # --- CORS Configuration ---
 app.add_middleware(
