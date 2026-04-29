@@ -33,19 +33,16 @@ class PortfolioPipeline:
         logger.info("Stage 2: Enriching data with Knowledge Graph & RAG...")
         enriched_data = self.enricher.enrich_sector_data(raw_market_data)
         
-        # The Gate: Validation
-        logger.info("Stage 2.5: Validating data completeness...")
         if not self.validator.is_ready(enriched_data):
-            logger.error("Pipeline blocked by Validator Gate due to incomplete data.")
-            return {
-                "success": False,
-                "error": "Data enrichment failed or incomplete. Strategy aborted.",
-                "details": "Validator check failed."
-            }
-        
-        # Stage 3: Strategy Execution
-        logger.info("Stage 3: Running portfolio strategy engine...")
-        strategy_results = self.strategy.calculate_allocation(user_profile, enriched_data)
+            logger.warning("Pipeline Validator check failed. Falling back to baseline strategy.")
+            # We don't abort, we just proceed with raw data and a 'High Risk' warning
+            strategy_results = self.strategy.calculate_allocation(user_profile, raw_market_data)
+            strategy_results["is_fallback"] = True
+        else:
+            # Stage 3: Strategy Execution
+            logger.info("Stage 3: Running portfolio strategy engine...")
+            strategy_results = self.strategy.calculate_allocation(user_profile, enriched_data)
+            strategy_results["is_fallback"] = False
         
         # Stage 4: Explanation
         logger.info("Stage 4: Generating AI explanation...")

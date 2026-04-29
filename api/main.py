@@ -1,30 +1,24 @@
+print("DEBUG: api/main.py loaded")
 import sys
 import os
+from dotenv import load_dotenv
 
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+load_dotenv()
 
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel
-from dotenv import load_dotenv
 
-# Project Imports
-from ingestion.pipeline import IngestionPipeline
-from retrieval.hybrid_retriever import HybridRetriever
-from graph.neo4j_client import Neo4jClient
-from vector_store.weaviate_client import WeaviateClient
-from langchain_google_genai import ChatGoogleGenerativeAI
+# Finance Pipeline Imports - Moved to lazy loading in routes
 
-# Finance Pipeline Imports
-from finance.portfolio.portfolio_pipeline import PortfolioPipeline
-from finance.trade_testing.trade_pipeline import TradeTestingPipeline
-
-load_dotenv()
-
+print("[*] DeepChain API Starting...")
 app = FastAPI(title="DeepChain Hybrid RAG API")
+print("[+] FastAPI App Initialized")
 
 # --- Monitoring ---
 Instrumentator().instrument(app).expose(app)
@@ -39,10 +33,6 @@ app.add_middleware(
 )
 
 # --- Dependency Initialization ---
-from vector_store.retriever import VectorRetriever
-from vector_store.embedder import GeminiEmbedder
-from graph.neo4j_client import Neo4jClient
-from vector_store.weaviate_client import WeaviateClient
 
 # We use the same model across the stack
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.0-flash")
@@ -56,6 +46,10 @@ def get_retriever():
     global _hybrid_retriever
     if _hybrid_retriever is None:
         try:
+            from vector_store.weaviate_client import WeaviateClient
+            from vector_store.embedder import GeminiEmbedder
+            from vector_store.retriever import VectorRetriever
+            from graph.neo4j_client import Neo4jClient
             w_client = WeaviateClient()
             emb = GeminiEmbedder()
             v_retriever = VectorRetriever(w_client, emb)
@@ -64,6 +58,7 @@ def get_retriever():
                 user=os.getenv("NEO4J_USERNAME", "neo4j"),
                 password=os.getenv("NEO4J_PASSWORD", "password123")
             )
+            from retrieval.hybrid_retriever import HybridRetriever
             _hybrid_retriever = HybridRetriever(
                 retriever=v_retriever,
                 neo4j_client=n_client,
@@ -127,6 +122,7 @@ def health_check():
 def start_ingestion():
     """Triggers the document ingestion pipeline."""
     try:
+        from ingestion.pipeline import IngestionPipeline
         pipeline = IngestionPipeline()
         pipeline.run()
         return {"status": "success", "message": "Ingestion completed."}
@@ -168,10 +164,20 @@ async def run_query(request: QueryRequest):
 async def get_portfolio_strategy(request: PortfolioRequest):
     """Generates a personalized portfolio allocation strategy."""
     try:
+        from finance.portfolio.portfolio_pipeline import PortfolioPipeline
         pipeline = PortfolioPipeline()
         result = pipeline.run(request.dict())
         pipeline.close()
-        return result
+        
+        # Flatten for frontend
+        return {
+            "status": result["strategy"]["status"],
+            "risk_profile": result["strategy"]["risk_profile"],
+            "allocations": result["strategy"]["allocations"],
+            "explanation": result["explanation"],
+            "surplus_income": result["strategy"]["health_status"]["monthly_surplus"],
+            "is_fallback": result["strategy"].get("is_fallback", False)
+        }
     except Exception as e:
         import traceback
         print(f"[!] Portfolio API Error: {e}\n{traceback.format_exc()}")
@@ -181,6 +187,7 @@ async def get_portfolio_strategy(request: PortfolioRequest):
 async def run_trade_test(request: TradeTestRequest):
     """Executes a backtest for a specific symbol and strategy."""
     try:
+        from finance.trade_testing.trade_pipeline import TradeTestingPipeline
         pipeline = TradeTestingPipeline()
         result = pipeline.run_test(
             symbol=request.symbol,

@@ -511,8 +511,13 @@ const Consultation = ({ domain, onBack }) => {
                 >
                   <div className="flex items-center justify-between mb-8">
                     <div>
-                      <div className="text-[10px] font-mono text-finance uppercase tracking-widest mb-1">Analysis Complete</div>
+                      <div className="text-[10px] font-mono text-finance uppercase tracking-widest mb-1">
+                        {portfolioData.is_fallback ? 'Analysis (Fallback Mode)' : 'Analysis Complete'}
+                      </div>
                       <h3 className="text-xl font-medium">Financial Health: <span className={portfolioData.status === 'CRITICAL' ? 'text-health' : 'text-finance'}>{portfolioData.status || 'ANALYZING'}</span></h3>
+                      {portfolioData.is_fallback && (
+                        <p className="text-[10px] text-health mt-1 font-mono uppercase">! Knowledge Graph Offline - Using Market Baseline</p>
+                      )}
                     </div>
                     <div className="w-12 h-12 rounded-2xl bg-finance/10 flex items-center justify-center text-finance border border-finance/20">
                       <PieChart size={24} />
