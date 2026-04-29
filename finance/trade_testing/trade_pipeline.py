@@ -9,7 +9,16 @@ from .backtester import StrategyBacktester, sma_crossover_strategy, rsi_strategy
 from .ml_evaluator import StrategyMLEvaluator
 
 # Configure logging
-logging.basicConfig(level=logging.INFO)
+log_format = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+logging.basicConfig(
+    level=logging.INFO,
+    format=log_format,
+    handlers=[
+        logging.FileHandler("finance/logs/trade_pipeline.log"),
+        logging.StreamHandler()
+    ],
+    force=True
+)
 logger = logging.getLogger(__name__)
 
 class TradeTestingPipeline:
@@ -66,7 +75,12 @@ if __name__ == "__main__":
     # Integration Test
     pipeline = TradeTestingPipeline()
     
-    # Test Reliance on NSE
-    result = pipeline.run_test("RELIANCE.NS", "SMA_Crossover")
-    print("\n--- TEST RESULT ---")
-    print(json.dumps(result, indent=4))
+    symbols = ["RELIANCE.NS", "HDFCBANK.NS"]
+    strategies = ["SMA_Crossover", "RSI_Standard"]
+    
+    for symbol in symbols:
+        for strat in strategies:
+            result = pipeline.run_test(symbol, strat)
+            print(f"\n--- Result for {symbol} | {strat} ---")
+            print(json.dumps(result, indent=4))
+
