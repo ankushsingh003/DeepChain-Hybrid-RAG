@@ -81,19 +81,34 @@ class PortfolioStrategy:
     def _derive_risk_profile(self, profile: Dict[str, Any], health: Dict[str, Any]) -> str:
         age = profile.get("age", 30)
         dependents = profile.get("dependents", 0)
+        horizon = profile.get("investment_horizon", "5yr")
+        goal = profile.get("primary_goal", "Wealth Creation")
         
         # Base Equity Cap: 100 - age
         equity_cap = 100 - age
         
-        # Reduce risk based on dependents
-        equity_cap -= (dependents * 5)
+        # Condition: More dependents -> more conservative
+        equity_cap -= (dependents * 7) # Increased penalty per dependent
         
-        # Reduce risk if health is not optimal
+        # Condition: Health Overrides (EF, Debt, Insurance)
         if not health["is_healthy"]:
-            equity_cap -= 20
+            equity_cap -= 25 # Heavier penalty for poor financial health
+        if health["insurance_missing"]:
+            equity_cap -= 10
             
-        if equity_cap > 70: return "Aggressive"
-        if equity_cap > 40: return "Moderate"
+        # Condition: Investment Horizon
+        if horizon == "1yr": equity_cap -= 30
+        elif horizon == "3yr": equity_cap -= 15
+        elif horizon == "10yr+": equity_cap += 10
+        
+        # Condition: Primary Goal
+        if goal == "Capital Preservation": equity_cap -= 20
+        elif goal == "Emergency Fund": equity_cap -= 40
+        elif goal == "Wealth Creation": equity_cap += 5
+        
+        # Final Risk Profile Mapping
+        if equity_cap > 75: return "Aggressive"
+        if equity_cap > 45: return "Moderate"
         return "Conservative"
 
     def _allocate_sectors(self, market_data: Dict[str, Any], surplus: Dict[str, Any], risk: str) -> Dict[str, Any]:

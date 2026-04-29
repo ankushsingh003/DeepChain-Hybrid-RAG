@@ -1,3 +1,9 @@
+import sys
+import os
+
+# Add project root to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,6 +17,10 @@ from retrieval.hybrid_retriever import HybridRetriever
 from graph.neo4j_client import Neo4jClient
 from vector_store.weaviate_client import WeaviateClient
 from langchain_google_genai import ChatGoogleGenerativeAI
+
+# Finance Pipeline Imports
+from finance.portfolio.portfolio_pipeline import PortfolioPipeline
+from finance.trade_testing.trade_pipeline import TradeTestingPipeline
 
 load_dotenv()
 
@@ -79,6 +89,30 @@ class QueryResponse(BaseModel):
     fallback_reason: str = ""
     latency: float = 0.0
 
+# --- Finance Schemas ---
+
+class PortfolioRequest(BaseModel):
+    age: int
+    monthly_income: float
+    monthly_expenses: float
+    pension: float = 0
+    govt_allowances: float = 0
+    additional_income: float = 0
+    dependents: int = 0
+    existing_savings: float = 0
+    emergency_fund_exists: bool = False
+    amount_to_invest: float = 0
+    liabilities: list = []
+    life_insurance: bool = False
+    health_insurance: bool = False
+    investment_horizon: str = "5yr"
+    primary_goal: str = "Wealth Creation"
+
+class TradeTestRequest(BaseModel):
+    symbol: str
+    strategy: str
+    period: str = "1y"
+
 # --- Routes ---
 
 @app.get("/health")
@@ -127,6 +161,37 @@ async def run_query(request: QueryRequest):
         import traceback
         print(f"[!] API Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail="Internal Server Error during retrieval.")
+
+# --- Finance Pipeline Routes ---
+
+@app.post("/finance/portfolio")
+async def get_portfolio_strategy(request: PortfolioRequest):
+    """Generates a personalized portfolio allocation strategy."""
+    try:
+        pipeline = PortfolioPipeline()
+        result = pipeline.run(request.dict())
+        pipeline.close()
+        return result
+    except Exception as e:
+        import traceback
+        print(f"[!] Portfolio API Error: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Portfolio generation failed: {str(e)}")
+
+@app.post("/finance/trade-test")
+async def run_trade_test(request: TradeTestRequest):
+    """Executes a backtest for a specific symbol and strategy."""
+    try:
+        pipeline = TradeTestingPipeline()
+        result = pipeline.run_test(
+            symbol=request.symbol,
+            strategy_name=request.strategy,
+            period=request.period
+        )
+        return result
+    except Exception as e:
+        import traceback
+        print(f"[!] Trade Test API Error: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Trade test failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn

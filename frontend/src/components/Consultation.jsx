@@ -4,9 +4,10 @@ import {
   Send, ArrowLeft, MoreHorizontal, Settings, 
   Info, Database, Share2, Sparkles, Network,
   BarChart2, FileText, ChevronRight, Activity,
-  RefreshCw, CheckCircle2, Circle
+  RefreshCw, CheckCircle2, Circle, PieChart, TrendingUp,
+  ShieldCheck, Wallet, Briefcase, Calculator
 } from 'lucide-react'
-import { queryRAG, triggerIngestion } from '../services/api'
+import { queryRAG, triggerIngestion, getPortfolioStrategy, runTradeTest } from '../services/api'
 
 const Consultation = ({ domain, onBack }) => {
   const [messages, setMessages] = useState([
@@ -21,6 +22,34 @@ const Consultation = ({ domain, onBack }) => {
   const [ingesting, setIngesting] = useState(false)
   const [method, setMethod] = useState('hybrid') // naive, graph, hybrid
   const [pipelineStep, setPipelineStep] = useState(0) // 0: Idle, 1: Extract, 2: Retrieve, 3: Fuse, 4: Generate
+  const [viewMode, setViewMode] = useState('chat') // chat, portfolio, tradetest
+  
+  // Finance Pipeline State
+  const [portfolioData, setPortfolioData] = useState(null)
+  const [tradeTestData, setTradeTestData] = useState(null)
+  const [financeLoading, setFinanceLoading] = useState(false)
+  const [profileForm, setProfileForm] = useState({
+    age: 30,
+    monthly_income: 50000,
+    monthly_expenses: 20000,
+    pension: 0,
+    govt_allowances: 0,
+    additional_income: 0,
+    dependents: 0,
+    existing_savings: 0,
+    emergency_fund_exists: false,
+    amount_to_invest: 10000,
+    liabilities: [],
+    life_insurance: false,
+    health_insurance: false,
+    investment_horizon: "5yr",
+    primary_goal: "Wealth Creation"
+  })
+  const [tradeForm, setTradeForm] = useState({
+    symbol: 'RELIANCE.NS',
+    strategy: 'SMA_Crossover',
+    period: '1y'
+  })
   const scrollRef = useRef(null)
 
   useEffect(() => {
@@ -77,6 +106,30 @@ const Consultation = ({ domain, onBack }) => {
       alert('Ingestion failed. Check server logs.')
     } finally {
       setIngesting(false)
+    }
+  }
+
+  const handlePortfolioRun = async () => {
+    setFinanceLoading(true)
+    try {
+      const data = await getPortfolioStrategy(profileForm)
+      setPortfolioData(data)
+    } catch (err) {
+      alert('Portfolio generation failed. Check API status.')
+    } finally {
+      setFinanceLoading(false)
+    }
+  }
+
+  const handleTradeTestRun = async () => {
+    setFinanceLoading(true)
+    try {
+      const data = await runTradeTest(tradeForm.symbol, tradeForm.strategy, tradeForm.period)
+      setTradeTestData(data)
+    } catch (err) {
+      alert('Trade test failed. Check API status.')
+    } finally {
+      setFinanceLoading(false)
     }
   }
 
@@ -154,6 +207,35 @@ const Consultation = ({ domain, onBack }) => {
             ))}
           </div>
         </div>
+
+        {domain.id === 'finance' && (
+          <div className="mt-4 p-4 rounded-2xl border border-border bg-bg3">
+            <h3 className="text-[10px] font-mono text-dim uppercase tracking-[0.08em] mb-3">Financial Toolkit</h3>
+            <div className="flex flex-col gap-2">
+              <button 
+                onClick={() => setViewMode('chat')}
+                className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${viewMode === 'chat' ? 'bg-finance/10 text-finance border border-finance/20' : 'text-muted hover:bg-bg'}`}
+              >
+                <Sparkles size={12} />
+                Expert Consultation
+              </button>
+              <button 
+                onClick={() => setViewMode('portfolio')}
+                className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${viewMode === 'portfolio' ? 'bg-finance/10 text-finance border border-finance/20' : 'text-muted hover:bg-bg'}`}
+              >
+                <PieChart size={12} />
+                Portfolio Allocation
+              </button>
+              <button 
+                onClick={() => setViewMode('tradetest')}
+                className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${viewMode === 'tradetest' ? 'bg-finance/10 text-finance border border-finance/20' : 'text-muted hover:bg-bg'}`}
+              >
+                <TrendingUp size={12} />
+                Trade Simulator
+              </button>
+            </div>
+          </div>
+        )}
         
         <button onClick={onBack} className="mt-auto flex items-center justify-center gap-2 p-3 rounded-xl border border-border text-muted text-xs hover:text-text hover:border-border2 transition-all">
           <ArrowLeft size={14} /> Back to Domains
@@ -171,104 +253,438 @@ const Consultation = ({ domain, onBack }) => {
             </div>
           </div>
           <div className="flex gap-2">
-             <button 
-              onClick={() => setMethod('naive')} 
-              className={`text-[10px] font-mono border rounded-md px-2.5 py-1 transition-all ${method === 'naive' ? 'text-finance border-finance/30 bg-finance/5' : 'text-muted border-border hover:border-border2'}`}
-            >
-              Naive RAG
-            </button>
-            <button 
-              onClick={() => setMethod('hybrid')} 
-              className={`text-[10px] font-mono border rounded-md px-2.5 py-1 transition-all ${method === 'hybrid' ? 'text-finance border-finance/30 bg-finance/5' : 'text-muted border-border hover:border-border2'}`}
-            >
-              Hybrid RAG
-            </button>
+            {viewMode === 'chat' && (
+              <>
+                <button 
+                  onClick={() => setMethod('naive')} 
+                  className={`text-[10px] font-mono border rounded-md px-2.5 py-1 transition-all ${method === 'naive' ? 'text-finance border-finance/30 bg-finance/5' : 'text-muted border-border hover:border-border2'}`}
+                >
+                  Naive RAG
+                </button>
+                <button 
+                  onClick={() => setMethod('hybrid')} 
+                  className={`text-[10px] font-mono border rounded-md px-2.5 py-1 transition-all ${method === 'hybrid' ? 'text-finance border-finance/30 bg-finance/5' : 'text-muted border-border hover:border-border2'}`}
+                >
+                  Hybrid RAG
+                </button>
+              </>
+            )}
+            {viewMode !== 'chat' && (
+              <button 
+                onClick={() => setViewMode('chat')}
+                className="text-[10px] font-mono border border-border rounded-md px-2.5 py-1 text-muted hover:text-text transition-all flex items-center gap-1.5"
+              >
+                <ArrowLeft size={10} /> Back to Chat
+              </button>
+            )}
           </div>
         </header>
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 custom-scrollbar">
-          {messages.map((msg, i) => (
-            <motion.div 
-              key={i}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`max-w-[640px] ${msg.role === 'user' ? 'self-end' : 'self-start'}`}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-mono border ${msg.role === 'assistant' ? 'bg-bg3 border-border text-muted' : 'bg-white/10 border-border text-text'}`}>
-                  {msg.role === 'assistant' ? 'AI' : 'U'}
-                </div>
-                <span className="text-[11px] text-dim font-mono">{msg.role === 'assistant' ? 'DeepChain' : 'You'} — {msg.timestamp}</span>
-              </div>
-              
-              <div className={`${msg.role === 'user' ? 'bg-bg3 border border-border rounded-2xl rounded-tr-sm p-4' : ''}`}>
-                <p className="text-[14px] leading-[1.7] text-text whitespace-pre-wrap">{msg.content}</p>
-                
-                {msg.role === 'assistant' && msg.citations && (
-                  <div className="flex flex-wrap gap-1.5 mt-4">
-                    {msg.citations.map((c, j) => (
-                      <span key={j} className="inline-flex items-center gap-1.5 text-[10px] font-mono text-muted border border-border rounded-full px-2.5 py-1 bg-bg2">
-                        <FileText size={10} /> {c}
-                      </span>
-                    ))}
+          {viewMode === 'chat' ? (
+            <>
+              {messages.map((msg, i) => (
+                <motion.div 
+                  key={i}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={`max-w-[640px] ${msg.role === 'user' ? 'self-end' : 'self-start'}`}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-mono border ${msg.role === 'assistant' ? 'bg-bg3 border-border text-muted' : 'bg-white/10 border-border text-text'}`}>
+                      {msg.role === 'assistant' ? 'AI' : 'U'}
+                    </div>
+                    <span className="text-[11px] text-dim font-mono">{msg.role === 'assistant' ? 'DeepChain' : 'You'} — {msg.timestamp}</span>
                   </div>
-                )}
+                  
+                  <div className={`${msg.role === 'user' ? 'bg-bg3 border border-border rounded-2xl rounded-tr-sm p-4' : ''}`}>
+                    <p className="text-[14px] leading-[1.7] text-text whitespace-pre-wrap">{msg.content}</p>
+                    
+                    {msg.role === 'assistant' && msg.citations && (
+                      <div className="flex flex-wrap gap-1.5 mt-4">
+                        {msg.citations.map((c, j) => (
+                          <span key={j} className="inline-flex items-center gap-1.5 text-[10px] font-mono text-muted border border-border rounded-full px-2.5 py-1 bg-bg2">
+                            <FileText size={10} /> {c}
+                          </span>
+                        ))}
+                      </div>
+                    )}
 
-                {msg.role === 'assistant' && msg.graph && (
-                  <div className="mt-4 border border-border rounded-xl overflow-hidden bg-bg3">
-                    <div className="px-4 py-2 border-b border-border text-[10px] font-mono text-dim flex items-center justify-between">
-                      <span>Graph Extraction</span>
-                      <Share2 size={10} />
-                    </div>
-                    <div className="p-4 flex flex-col gap-2">
-                      {msg.graph.map((triplet, j) => (
-                        <div key={j} className="flex items-center gap-2 text-[10px] font-mono">
-                          <span className="px-2 py-1 rounded border border-finance/30 text-finance bg-finance/5">{triplet.s}</span>
-                          <span className="text-dim">→ {triplet.p} →</span>
-                          <span className="px-2 py-1 rounded border border-legal/30 text-legal bg-legal/5">{triplet.o}</span>
+                    {msg.role === 'assistant' && msg.graph && (
+                      <div className="mt-4 border border-border rounded-xl overflow-hidden bg-bg3">
+                        <div className="px-4 py-2 border-b border-border text-[10px] font-mono text-dim flex items-center justify-between">
+                          <span>Graph Extraction</span>
+                          <Share2 size={10} />
                         </div>
-                      ))}
+                        <div className="p-4 flex flex-col gap-2">
+                          {msg.graph.map((triplet, j) => (
+                            <div key={j} className="flex items-center gap-2 text-[10px] font-mono">
+                              <span className="px-2 py-1 rounded border border-finance/30 text-finance bg-finance/5">{triplet.s}</span>
+                              <span className="text-dim">→ {triplet.p} →</span>
+                              <span className="px-2 py-1 rounded border border-legal/30 text-legal bg-legal/5">{triplet.o}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              ))}
+              {loading && (
+                <div className="self-start max-w-[640px]">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="w-6 h-6 rounded-md bg-bg3 border border-border flex items-center justify-center animate-pulse">
+                      <Activity size={12} className="text-muted" />
+                    </div>
+                    <span className="text-[11px] text-dim font-mono">Consultant is thinking...</span>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : viewMode === 'portfolio' ? (
+            <div className="max-w-[800px] mx-auto w-full">
+              <div className="mb-8 border-b border-border pb-6">
+                <h2 className="text-2xl font-serif mb-2">Portfolio Allocation Strategy</h2>
+                <p className="text-sm text-muted">Configure your profile to generate a risk-aware investment strategy.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-8 mb-10">
+                <div className="flex flex-col gap-5">
+                  <div>
+                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Personal Info</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 rounded-xl border border-border bg-bg2">
+                        <div className="text-[10px] text-muted mb-1">Age</div>
+                        <input 
+                          type="number" 
+                          value={profileForm.age}
+                          onChange={(e) => setProfileForm({...profileForm, age: parseInt(e.target.value)})}
+                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
+                        />
+                      </div>
+                      <div className="p-3 rounded-xl border border-border bg-bg2">
+                        <div className="text-[10px] text-muted mb-1">Dependents</div>
+                        <input 
+                          type="number" 
+                          value={profileForm.dependents}
+                          onChange={(e) => setProfileForm({...profileForm, dependents: parseInt(e.target.value)})}
+                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
+                        />
+                      </div>
                     </div>
                   </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
-          {loading && (
-            <div className="self-start max-w-[640px]">
-              <div className="flex items-center gap-2 mb-2">
-                <div className="w-6 h-6 rounded-md bg-bg3 border border-border flex items-center justify-center animate-pulse">
-                  <Activity size={12} className="text-muted" />
+
+                  <div>
+                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Monthly Cashflow</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 rounded-xl border border-border bg-bg2">
+                        <div className="text-[10px] text-muted mb-1">Primary Income (₹)</div>
+                        <input 
+                          type="number" 
+                          value={profileForm.monthly_income}
+                          onChange={(e) => setProfileForm({...profileForm, monthly_income: parseFloat(e.target.value)})}
+                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
+                        />
+                      </div>
+                      <div className="p-3 rounded-xl border border-border bg-bg2">
+                        <div className="text-[10px] text-muted mb-1">Expenses (₹)</div>
+                        <input 
+                          type="number" 
+                          value={profileForm.monthly_expenses}
+                          onChange={(e) => setProfileForm({...profileForm, monthly_expenses: parseFloat(e.target.value)})}
+                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
+                        />
+                      </div>
+                      <div className="p-3 rounded-xl border border-border bg-bg2">
+                        <div className="text-[10px] text-muted mb-1">Pension (₹)</div>
+                        <input 
+                          type="number" 
+                          value={profileForm.pension}
+                          onChange={(e) => setProfileForm({...profileForm, pension: parseFloat(e.target.value)})}
+                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
+                        />
+                      </div>
+                      <div className="p-3 rounded-xl border border-border bg-bg2">
+                        <div className="text-[10px] text-muted mb-1">Other Income (₹)</div>
+                        <input 
+                          type="number" 
+                          value={profileForm.additional_income}
+                          onChange={(e) => setProfileForm({...profileForm, additional_income: parseFloat(e.target.value)})}
+                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Current Assets & Goal</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="p-3 rounded-xl border border-border bg-bg2">
+                        <div className="text-[10px] text-muted mb-1">Existing Savings (₹)</div>
+                        <input 
+                          type="number" 
+                          value={profileForm.existing_savings}
+                          onChange={(e) => setProfileForm({...profileForm, existing_savings: parseFloat(e.target.value)})}
+                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
+                        />
+                      </div>
+                      <div className="p-3 rounded-xl border border-border bg-bg2">
+                        <div className="text-[10px] text-muted mb-1">Target Investment (₹)</div>
+                        <input 
+                          type="number" 
+                          value={profileForm.amount_to_invest}
+                          onChange={(e) => setProfileForm({...profileForm, amount_to_invest: parseFloat(e.target.value)})}
+                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
+                        />
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <span className="text-[11px] text-dim font-mono">Consultant is thinking...</span>
+
+                <div className="flex flex-col gap-5">
+                   <div>
+                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Safety Nets</label>
+                    <div className="grid grid-cols-1 gap-2">
+                      <button 
+                        onClick={() => setProfileForm({...profileForm, health_insurance: !profileForm.health_insurance})}
+                        className={`flex items-center justify-between p-3 rounded-xl border transition-all ${profileForm.health_insurance ? 'border-finance/50 bg-finance/5 text-finance' : 'border-border bg-bg2 text-muted'}`}
+                      >
+                        <div className="flex items-center gap-2 text-xs">
+                          <ShieldCheck size={14} /> Health Insurance
+                        </div>
+                        {profileForm.health_insurance ? 'YES' : 'NO'}
+                      </button>
+                      <button 
+                         onClick={() => setProfileForm({...profileForm, life_insurance: !profileForm.life_insurance})}
+                        className={`flex items-center justify-between p-3 rounded-xl border transition-all ${profileForm.life_insurance ? 'border-finance/50 bg-finance/5 text-finance' : 'border-border bg-bg2 text-muted'}`}
+                      >
+                        <div className="flex items-center gap-2 text-xs">
+                          <Heart size={14} /> Life Insurance
+                        </div>
+                        {profileForm.life_insurance ? 'YES' : 'NO'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Strategy Controls</label>
+                    <div className="flex flex-col gap-3">
+                      <select 
+                        value={profileForm.investment_horizon}
+                        onChange={(e) => setProfileForm({...profileForm, investment_horizon: e.target.value})}
+                        className="p-3 rounded-xl border border-border bg-bg2 text-sm outline-none"
+                      >
+                        <option value="1yr">Short Term (1 Yr)</option>
+                        <option value="3yr">Medium Term (3 Yrs)</option>
+                        <option value="5yr">Long Term (5+ Yrs)</option>
+                      </select>
+                      <select 
+                        value={profileForm.primary_goal}
+                        onChange={(e) => setProfileForm({...profileForm, primary_goal: e.target.value})}
+                        className="p-3 rounded-xl border border-border bg-bg2 text-sm outline-none"
+                      >
+                        <option value="Wealth Creation">Wealth Creation</option>
+                        <option value="Capital Preservation">Capital Preservation</option>
+                        <option value="Retirement">Retirement Planning</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={handlePortfolioRun}
+                    disabled={financeLoading}
+                    className="mt-auto py-4 rounded-xl bg-text text-bg font-medium flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+                  >
+                    {financeLoading ? <RefreshCw size={18} className="animate-spin" /> : <Calculator size={18} />}
+                    Generate Strategy
+                  </button>
+                </div>
               </div>
+
+              {portfolioData && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-8 rounded-3xl border border-border bg-bg3"
+                >
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <div className="text-[10px] font-mono text-finance uppercase tracking-widest mb-1">Analysis Complete</div>
+                      <h3 className="text-xl font-medium">Financial Health: <span className={portfolioData.status === 'CRITICAL' ? 'text-health' : 'text-finance'}>{portfolioData.status}</span></h3>
+                    </div>
+                    <div className="w-12 h-12 rounded-2xl bg-finance/10 flex items-center justify-center text-finance border border-finance/20">
+                      <PieChart size={24} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-8 mb-8">
+                    <div className="p-6 rounded-2xl border border-border bg-bg/50">
+                      <h4 className="text-[11px] font-mono text-dim uppercase mb-4">Recommended Allocations</h4>
+                      <div className="flex flex-col gap-4">
+                        {Object.entries(portfolioData.allocations).map(([sector, percent], i) => (
+                          <div key={i}>
+                            <div className="flex justify-between text-xs mb-1.5">
+                              <span>{sector}</span>
+                              <span className="font-mono">{percent}%</span>
+                            </div>
+                            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
+                              <div className="h-full bg-finance" style={{ width: `${percent}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="p-6 rounded-2xl border border-border bg-bg/50">
+                      <h4 className="text-[11px] font-mono text-dim uppercase mb-4">Risk Profile</h4>
+                      <div className="text-3xl font-serif mb-2">{portfolioData.risk_profile}</div>
+                      <p className="text-[12px] text-muted leading-relaxed">
+                        Based on your age ({profileForm.age}) and surplus income of ₹{portfolioData.surplus_income}, 
+                        the engine has calibrated a {portfolioData.risk_profile.toLowerCase()} strategy for your {profileForm.investment_horizon} horizon.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-6 rounded-2xl border border-finance/20 bg-finance/5">
+                    <div className="flex items-center gap-2 mb-3 text-finance">
+                      <Sparkles size={16} />
+                      <span className="text-[11px] font-mono uppercase tracking-wider">AI Strategic Insights</span>
+                    </div>
+                    <p className="text-sm text-text leading-relaxed whitespace-pre-wrap italic">
+                      "{portfolioData.explanation}"
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          ) : (
+            <div className="max-w-[800px] mx-auto w-full">
+               <div className="mb-8 border-b border-border pb-6">
+                <h2 className="text-2xl font-serif mb-2">Trade Simulator & Backtester</h2>
+                <p className="text-sm text-muted">Validate trading strategies against historical NSE market data.</p>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4 mb-10">
+                <div className="p-4 rounded-xl border border-border bg-bg2">
+                  <label className="text-[10px] font-mono text-dim uppercase mb-2 block">Ticker Symbol</label>
+                  <input 
+                    type="text" 
+                    value={tradeForm.symbol}
+                    onChange={(e) => setTradeForm({...tradeForm, symbol: e.target.value.toUpperCase()})}
+                    className="w-full bg-transparent border-none outline-none text-lg font-mono text-finance" 
+                  />
+                  <div className="text-[10px] text-dim mt-1">e.g. RELIANCE.NS, TCS.NS</div>
+                </div>
+                <div className="p-4 rounded-xl border border-border bg-bg2">
+                  <label className="text-[10px] font-mono text-dim uppercase mb-2 block">Strategy</label>
+                  <select 
+                    value={tradeForm.strategy}
+                    onChange={(e) => setTradeForm({...tradeForm, strategy: e.target.value})}
+                    className="w-full bg-transparent border-none outline-none text-sm font-sans mt-1"
+                  >
+                    <option value="SMA_Crossover">SMA Crossover (50/200)</option>
+                    <option value="RSI_Standard">RSI Mean Reversion</option>
+                  </select>
+                </div>
+                <div className="p-4 rounded-xl border border-border bg-bg2">
+                  <label className="text-[10px] font-mono text-dim uppercase mb-2 block">Time Period</label>
+                  <select 
+                    value={tradeForm.period}
+                    onChange={(e) => setTradeForm({...tradeForm, period: e.target.value})}
+                    className="w-full bg-transparent border-none outline-none text-sm font-sans mt-1"
+                  >
+                    <option value="1mo">1 Month</option>
+                    <option value="6mo">6 Months</option>
+                    <option value="1y">1 Year</option>
+                    <option value="2y">2 Years</option>
+                  </select>
+                </div>
+              </div>
+
+              <button 
+                onClick={handleTradeTestRun}
+                disabled={financeLoading}
+                className="w-full py-4 rounded-xl bg-finance text-bg font-medium flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.99] transition-all disabled:opacity-50 mb-10"
+              >
+                {financeLoading ? <RefreshCw size={18} className="animate-spin" /> : <TrendingUp size={18} />}
+                Run Simulation
+              </button>
+
+              {tradeTestData && (
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.98 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  className="grid grid-cols-4 gap-4"
+                >
+                  <div className="col-span-4 p-6 rounded-3xl border border-border bg-bg3 flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-finance/10 flex items-center justify-center text-finance">
+                        <Activity size={24} />
+                      </div>
+                      <div>
+                        <div className="text-[10px] font-mono text-dim uppercase tracking-wider">Strategy Score</div>
+                        <div className="text-2xl font-serif">{tradeTestData.evaluation.score}/100 — {tradeTestData.evaluation.grade}</div>
+                      </div>
+                    </div>
+                    <div className={`px-4 py-2 rounded-full border ${tradeTestData.results.total_return >= 0 ? 'border-finance/30 bg-finance/5 text-finance' : 'border-health/30 bg-health/5 text-health'} font-mono text-sm`}>
+                      {tradeTestData.results.total_return > 0 ? '+' : ''}{tradeTestData.results.total_return.toFixed(2)}% Return
+                    </div>
+                  </div>
+
+                  {[
+                    { label: 'Win Rate', value: `${(tradeTestData.results.win_rate * 100).toFixed(1)}%`, icon: <CheckCircle2 size={14}/> },
+                    { label: 'Sharpe Ratio', value: tradeTestData.results.sharpe_ratio.toFixed(2), icon: <Activity size={14}/> },
+                    { label: 'Max Drawdown', value: `${(tradeTestData.results.max_drawdown * 100).toFixed(1)}%`, icon: <ShieldCheck size={14}/> },
+                    { label: 'Total Trades', value: tradeTestData.results.total_trades, icon: <Briefcase size={14}/> }
+                  ].map((stat, i) => (
+                    <div key={i} className="p-4 rounded-2xl border border-border bg-bg2">
+                      <div className="flex items-center gap-2 text-dim mb-2">
+                        {stat.icon}
+                        <span className="text-[10px] font-mono uppercase">{stat.label}</span>
+                      </div>
+                      <div className="text-lg font-mono">{stat.value}</div>
+                    </div>
+                  ))}
+
+                  <div className="col-span-4 p-6 rounded-3xl border border-border bg-bg3 mt-2">
+                    <h4 className="text-[11px] font-mono text-dim uppercase mb-4 flex items-center gap-2">
+                      <Sparkles size={14} className="text-finance" />
+                      ML Evaluator Insight
+                    </h4>
+                    <p className="text-sm text-text leading-relaxed">
+                      {tradeTestData.evaluation.recommendation}
+                    </p>
+                  </div>
+                </motion.div>
+              )}
             </div>
           )}
         </div>
 
-        <footer className="p-8 bg-bg border-t border-border">
-          <div className="max-w-[800px] mx-auto">
-            <div className="flex items-center gap-2 mb-4">
-               {['Explain capital ratios', 'How HIPAA affects ePHI?', 'Recent case precedents'].map((q, i) => (
-                 <button key={i} onClick={() => setInput(q)} className="text-[11px] text-muted px-3.5 py-1.5 border border-border rounded-full bg-bg2 hover:bg-bg3 hover:text-text transition-all">
-                   {q}
-                 </button>
-               ))}
+        {viewMode === 'chat' && (
+          <footer className="p-8 bg-bg border-t border-border">
+            <div className="max-w-[800px] mx-auto">
+              <div className="flex items-center gap-2 mb-4">
+                 {['Explain capital ratios', 'How HIPAA affects ePHI?', 'Recent case precedents'].map((q, i) => (
+                   <button key={i} onClick={() => setInput(q)} className="text-[11px] text-muted px-3.5 py-1.5 border border-border rounded-full bg-bg2 hover:bg-bg3 hover:text-text transition-all">
+                     {q}
+                   </button>
+                 ))}
+              </div>
+              <div className="flex items-end gap-3 bg-bg2 border border-border2 rounded-2xl p-4 focus-within:border-white/25 transition-all">
+                <textarea 
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
+                  placeholder="Ask your specialized query..."
+                  className="flex-1 bg-transparent border-none outline-none font-sans text-[14px] text-text resize-none leading-relaxed min-h-[24px] max-h-32"
+                />
+                <button onClick={handleSend} disabled={!input.trim() || loading} className="w-10 h-10 rounded-xl bg-text text-bg flex items-center justify-center transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100">
+                  <Send size={18} />
+                </button>
+              </div>
             </div>
-            <div className="flex items-end gap-3 bg-bg2 border border-border2 rounded-2xl p-4 focus-within:border-white/25 transition-all">
-              <textarea 
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-                placeholder="Ask your specialized query..."
-                className="flex-1 bg-transparent border-none outline-none font-sans text-[14px] text-text resize-none leading-relaxed min-h-[24px] max-h-32"
-              />
-              <button onClick={handleSend} disabled={!input.trim() || loading} className="w-10 h-10 rounded-xl bg-text text-bg flex items-center justify-center transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100">
-                <Send size={18} />
-              </button>
-            </div>
-          </div>
-        </footer>
+          </footer>
+        )}
       </main>
 
       {/* RIGHT PANEL */}

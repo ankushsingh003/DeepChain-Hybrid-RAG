@@ -29,3 +29,27 @@ export const checkHealth = async () => {
   const response = await axios.get(`${API_BASE_URL}/health`)
   return response.data
 }
+
+export const getPortfolioStrategy = async (profile) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/finance/portfolio`, profile)
+    return response.data
+  } catch (error) {
+    console.error('Portfolio API Error:', error)
+    throw error
+  }
+}
+
+export const runTradeTest = async (symbol, strategy, period = '1y') => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/finance/trade-test`, {
+      symbol,
+      strategy,
+      period
+    })
+    return response.data
+  } catch (error) {
+    console.error('Trade Test API Error:', error)
+    throw error
+  }
+}

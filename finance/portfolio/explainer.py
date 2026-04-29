@@ -23,10 +23,14 @@ class PortfolioExplainer:
         self.prompt_template = ChatPromptTemplate.from_template("""
         You are an expert financial consultant for DeepChain. 
         Your task is to explain a personalized portfolio strategy to a client in plain, encouraging English.
+        The client's strategy was derived dynamically using their profile and live market data.
 
         --- CLIENT PROFILE SUMMARY ---
         Age: {age}
-        Risk Profile: {risk_profile}
+        Dependents: {dependents}
+        Investment Horizon: {horizon}
+        Primary Goal: {goal}
+        Risk Profile (Calculated): {risk_profile}
         Net Investable Amount: ₹{investable_amount}
         
         --- FINANCIAL HEALTH STATUS ---
@@ -38,11 +42,11 @@ class PortfolioExplainer:
         {allocations}
 
         --- INSTRUCTIONS ---
-        1. Start by addressing their financial health (Emergency funds, debt).
-        2. Explain WHY these sectors were chosen (mention momentum, sentiment, or PE where relevant).
-        3. Keep the tone professional but accessible.
-        4. Do NOT change any numbers or percentages.
-        5. Conclude with a clear next step.
+        1. Contextualize the strategy: Mention how their {dependents} dependents, {horizon} horizon, and goal of '{goal}' influenced their {risk_profile} risk rating.
+        2. Financial Health Priority: If there's an EF shortfall or high-interest debt, explain why the system is prioritizing those first before market exposure.
+        3. Sector Rationale: Explain WHY these specific sectors were chosen for the remaining funds (mention live market trends).
+        4. Keep the tone professional, empathetic, and expert.
+        5. Do NOT change any numbers or percentages.
 
         Professional Explanation:
         """)
@@ -63,6 +67,9 @@ class PortfolioExplainer:
             chain = self.prompt_template | self.llm
             response = chain.invoke({
                 "age": profile.get("age"),
+                "dependents": profile.get("dependents"),
+                "horizon": profile.get("investment_horizon"),
+                "goal": profile.get("primary_goal"),
                 "risk_profile": results["risk_profile"],
                 "investable_amount": results["surplus_data"]["net_investable_now"],
                 "ef_shortfall": results["health_status"]["ef_shortfall"],
