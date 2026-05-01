@@ -65,7 +65,9 @@ function App() {
   }
 
   return (
-    <div className="relative z-10 min-h-screen">
+    <div className="relative z-50 min-h-screen bg-red-900/20">
+      <h1 className="fixed top-0 left-0 z-[100] bg-white text-black p-2 text-xs font-mono">App.jsx Mounted: {view}</h1>
+      
       {view === 'landing' && <Landing onGetConsulted={navigateToDomains} />}
       {view === 'domains' && (
         <DomainSelection 
