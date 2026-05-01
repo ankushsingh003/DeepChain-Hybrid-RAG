@@ -22,7 +22,11 @@ const Consultation = ({ domain, onBack }) => {
   const [ingesting, setIngesting] = useState(false)
   const [method, setMethod] = useState('hybrid') // naive, graph, hybrid
   const [pipelineStep, setPipelineStep] = useState(0) // 0: Idle, 1: Extract, 2: Retrieve, 3: Fuse, 4: Generate
-  const [viewMode, setViewMode] = useState('chat') // chat, portfolio, tradetest
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('deepchain_viewmode') || 'chat')
+  
+  useEffect(() => {
+    localStorage.setItem('deepchain_viewmode', viewMode)
+  }, [viewMode])
   
   // Finance Pipeline State
   const [portfolioData, setPortfolioData] = useState(null)
