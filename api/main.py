@@ -112,6 +112,15 @@ class MarketAdvisorRequest(BaseModel):
 
 # --- Routes ---
 
+@app.get("/metrics")
+async def get_metrics():
+    return {
+        "status": "online",
+        "uptime": "active",
+        "engine": "Gemini 1.5 Pro",
+        "pipeline": "Hybrid-RAG"
+    }
+
 @app.get("/health")
 def health_check():
     retriever = get_retriever()
