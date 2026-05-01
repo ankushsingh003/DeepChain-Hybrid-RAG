@@ -8,7 +8,7 @@ const Landing = ({ onGetConsulted }) => {
       {/* NAV */}
       <nav className="w-full flex items-center justify-between px-12 py-5 backdrop-blur-xl sticky top-0 z-[100] bg-bg/85 border-b border-border">
         <a href="#" className="flex items-center gap-2.5 font-serif text-xl tracking-tight text-text">
-          <div className="w-2 h-2 rounded-full bg-finance animate-pulse-slow" />
+          <div className="w-2 h-2 rounded-full bg-finance" />
           DeepChain
         </a>
         <div className="flex gap-2">
@@ -20,49 +20,27 @@ const Landing = ({ onGetConsulted }) => {
 
       {/* HERO */}
       <section className="min-h-[calc(100vh-65px)] flex flex-col items-center justify-center text-center px-12 py-20 relative">
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="hero-badge"
-        >
-          v2.0 Enterprise Release
-        </motion.div>
+        <div className="hero-badge">
+          v2.1 Enterprise Release
+        </div>
         
-        <motion.h1 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="font-serif text-[clamp(32px,5vw,72px)] leading-none tracking-[-2px] text-text mb-7 w-full whitespace-nowrap"
-        >
+        <h1 className="font-serif text-[clamp(32px,5vw,72px)] leading-none tracking-[-2px] text-text mb-7 w-full">
           Enterprise Knowledge Intelligence.
-        </motion.h1>
+        </h1>
 
-        <motion.p 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="text-[17px] leading-[1.65] text-muted max-w-[520px] mb-14 font-light"
-        >
+        <p className="text-[17px] leading-[1.65] text-muted max-w-[520px] mb-14 font-light">
           Combine Knowledge Graphs with Vector Embeddings to eliminate hallucinations in high-stakes domains.
-        </motion.p>
+        </p>
 
-        <motion.button 
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+        <button 
           onClick={onGetConsulted}
           className="inline-flex items-center gap-2.5 text-[15px] font-medium text-bg bg-text rounded-full px-9 py-4 transition-all hover:-translate-y-0.5 hover:shadow-[0_12px_40px_rgba(240,237,232,0.15)] group"
         >
           Get Consulted
           <ArrowRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-        </motion.button>
+        </button>
 
-        <motion.div 
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.5 }}
-          className="mt-20 flex gap-16 border-t border-border pt-10"
-        >
+        <div className="mt-20 flex gap-16 border-t border-border pt-10">
           <div className="text-center">
             <span className="font-serif text-3xl text-text block leading-none mb-1.5">98.4%</span>
             <span className="text-[12px] text-dim font-mono tracking-wider uppercase">Accuracy</span>
@@ -75,7 +53,7 @@ const Landing = ({ onGetConsulted }) => {
             <span className="font-serif text-3xl text-text block leading-none mb-1.5">10M+</span>
             <span className="text-[12px] text-dim font-mono tracking-wider uppercase">Nodes</span>
           </div>
-        </motion.div>
+        </div>
       </section>
 
       {/* DIFFERENTIATORS */}
