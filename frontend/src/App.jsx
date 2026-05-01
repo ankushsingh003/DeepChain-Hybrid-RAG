@@ -16,13 +16,18 @@ function App() {
 
   // VALIDATION: Version check to clear old incompatible data
   useEffect(() => {
-    const CURRENT_VERSION = "2.0";
-    const savedVersion = localStorage.getItem('deepchain_version');
-    if (savedVersion !== CURRENT_VERSION) {
-      console.log("Old version detected. Clearing storage...");
-      localStorage.clear();
-      localStorage.setItem('deepchain_version', CURRENT_VERSION);
-      window.location.reload();
+    try {
+      const CURRENT_VERSION = "2.1";
+      const savedVersion = localStorage.getItem('deepchain_version');
+      if (savedVersion !== CURRENT_VERSION) {
+        localStorage.removeItem('deepchain_view');
+        localStorage.removeItem('deepchain_domain');
+        localStorage.removeItem('deepchain_viewmode');
+        localStorage.setItem('deepchain_version', CURRENT_VERSION);
+        // No hard reload here to avoid loops
+      }
+    } catch (e) {
+      console.error("Storage error:", e);
     }
   }, [])
 
