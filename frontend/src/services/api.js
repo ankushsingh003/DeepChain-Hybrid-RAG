@@ -53,3 +53,15 @@ export const runTradeTest = async (symbol, strategy, period = '1y') => {
     throw error
   }
 }
+
+export const getStrategyAdvice = async (intent) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/finance/strategy-advisor`, {
+      intent
+    })
+    return response.data
+  } catch (error) {
+    console.error('Strategy Advisor API Error:', error)
+    throw error
+  }
+}

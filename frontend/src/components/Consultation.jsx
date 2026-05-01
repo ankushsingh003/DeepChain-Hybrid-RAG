@@ -7,7 +7,7 @@ import {
   RefreshCw, CheckCircle2, Circle, PieChart, TrendingUp,
   ShieldCheck, Wallet, Briefcase, Calculator, Heart
 } from 'lucide-react'
-import { queryRAG, triggerIngestion, getPortfolioStrategy, runTradeTest } from '../services/api'
+import { queryRAG, triggerIngestion, getPortfolioStrategy, runTradeTest, getStrategyAdvice } from '../services/api'
 
 const Consultation = ({ domain, onBack }) => {
   const [messages, setMessages] = useState([
@@ -27,6 +27,7 @@ const Consultation = ({ domain, onBack }) => {
   // Finance Pipeline State
   const [portfolioData, setPortfolioData] = useState(null)
   const [tradeTestData, setTradeTestData] = useState(null)
+  const [strategyAdvice, setStrategyAdvice] = useState(null)
   const [financeLoading, setFinanceLoading] = useState(false)
   const [profileForm, setProfileForm] = useState({
     age: 30,
@@ -133,6 +134,19 @@ const Consultation = ({ domain, onBack }) => {
     }
   }
 
+  const handleStrategyAdvisorRun = async () => {
+    if (!input.trim()) return
+    setFinanceLoading(true)
+    try {
+      const data = await getStrategyAdvice(input)
+      setStrategyAdvice(data)
+    } catch (err) {
+      alert('Strategy generation failed. Check API status.')
+    } finally {
+      setFinanceLoading(false)
+    }
+  }
+
   return (
     <div className="flex h-[calc(100vh-65px)] overflow-hidden bg-bg">
       {/* LEFT SIDEBAR */}
@@ -232,6 +246,13 @@ const Consultation = ({ domain, onBack }) => {
               >
                 <TrendingUp size={12} />
                 Trade Simulator
+              </button>
+              <button 
+                onClick={() => setViewMode('strategy_advisor')}
+                className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${viewMode === 'strategy_advisor' ? 'bg-finance/10 text-finance border border-finance/20' : 'text-muted hover:bg-bg'}`}
+              >
+                <Sparkles size={12} />
+                Strategy Advisor
               </button>
             </div>
           </div>
@@ -661,6 +682,72 @@ const Consultation = ({ domain, onBack }) => {
                     </h4>
                     <p className="text-sm text-text leading-relaxed">
                       {tradeTestData.evaluation?.recommendation || 'No recommendation available.'}
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+            </div>
+          )}
+
+          {viewMode === 'strategy_advisor' && (
+            <div className="max-w-[800px] mx-auto w-full pb-20">
+              <div className="mb-8 border-b border-border pb-6">
+                <h2 className="text-2xl font-serif mb-2">Quant Strategy Advisor</h2>
+                <p className="text-sm text-muted">Generate full strategy approaches based on institutional knowledge.</p>
+              </div>
+
+              <div className="flex flex-col gap-6 mb-10">
+                <div className="p-6 rounded-3xl border border-border bg-bg2 focus-within:border-finance/40 transition-all">
+                  <label className="text-[10px] font-mono text-dim uppercase mb-3 block">Describe your strategy intent</label>
+                  <textarea 
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder="e.g. I want a trend-following strategy that uses volatility bands to identify breakouts and includes a trailing stop-loss."
+                    className="w-full bg-transparent border-none outline-none text-lg font-serif text-text resize-none leading-relaxed min-h-[100px]"
+                  />
+                  <div className="flex justify-end mt-4">
+                    <button 
+                      onClick={handleStrategyAdvisorRun}
+                      disabled={financeLoading || !input.trim()}
+                      className="py-3 px-8 rounded-xl bg-finance text-bg font-medium flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50"
+                    >
+                      {financeLoading ? <RefreshCw size={18} className="animate-spin" /> : <Sparkles size={18} />}
+                      Build Strategy Approach
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {strategyAdvice && (
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-8 rounded-3xl border border-border bg-bg3 relative"
+                >
+                   <div className="absolute top-6 right-8 flex items-center gap-2 text-[10px] font-mono text-dim">
+                    <Database size={10} /> RAG SECURED
+                  </div>
+                  
+                  <div className="prose prose-invert max-w-none">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="w-10 h-10 rounded-xl bg-finance/10 flex items-center justify-center text-finance border border-finance/20">
+                        <Briefcase size={20} />
+                      </div>
+                      <h3 className="text-xl font-medium m-0">Strategic Report</h3>
+                    </div>
+                    
+                    <div className="text-[14px] leading-[1.8] text-text whitespace-pre-wrap font-sans">
+                      {strategyAdvice.approach_report}
+                    </div>
+                  </div>
+
+                  <div className="mt-10 p-6 rounded-2xl border border-border bg-bg/50">
+                    <h4 className="text-[11px] font-mono text-dim uppercase mb-4 flex items-center gap-2">
+                      <Database size={14} className="text-finance" />
+                      Retrieved Knowledge Context
+                    </h4>
+                    <p className="text-[12px] text-muted italic leading-relaxed">
+                      "{strategyAdvice.retrieved_context}"
                     </p>
                   </div>
                 </motion.div>

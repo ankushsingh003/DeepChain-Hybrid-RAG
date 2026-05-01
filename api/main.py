@@ -104,6 +104,9 @@ class TradeTestRequest(BaseModel):
     strategy: str
     period: str = "1y"
 
+class StrategyAdvisorRequest(BaseModel):
+    intent: str
+
 # --- Routes ---
 
 @app.get("/health")
@@ -195,6 +198,19 @@ async def run_trade_test(request: TradeTestRequest):
         import traceback
         print(f"[!] Trade Test API Error: {e}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Trade test failed: {str(e)}")
+
+@app.post("/finance/strategy-advisor")
+async def get_strategy_advice(request: StrategyAdvisorRequest):
+    """Generates a full trading strategy approach based on user intent."""
+    try:
+        from finance.strategies.advisor import StrategyAdvisor
+        advisor = StrategyAdvisor()
+        result = await advisor.get_strategy_approach(request.intent)
+        return result
+    except Exception as e:
+        import traceback
+        print(f"[!] Strategy Advisor API Error: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Strategy generation failed: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
