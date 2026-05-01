@@ -2,12 +2,16 @@
 graph/extractor.py  —  DeepChain Hybrid-RAG
 Module: Triplet Extractor (Core LLM Logic)
 
-FIXES:
-  - Replaced deprecated 'gemini-1.5-flash-latest' with 'gemini-2.0-flash'
-  - Added FALLBACK_MODELS list: on 404/NOT_FOUND, automatically retries with
-    the next model in the list (sticky — once one works, all chunks use it).
-  - Improved TRIPLET_PROMPT: richer predicates, entity-type tags, exhaustive.
-  - _is_model_not_found() helper distinguishes 404 from transient errors.
+FIXES v3:
+  - 429 RESOURCE_EXHAUSTED: parse retryDelay from error message and sleep
+    for exactly as long as Google tells us to (+ small jitter).
+  - On sustained 429 (quota exhausted for the day), auto-switch to next
+    fallback model instead of hammering the same model.
+  - FALLBACK_MODELS ordered by free-tier generosity:
+      gemini-2.0-flash → gemini-1.5-flash → gemini-1.5-pro → gemini-pro
+  - 404 NOT_FOUND: immediate model switch, no sleep.
+  - Transient errors (5xx, network): exponential backoff as before.
+  - Improved prompt with entity-type tags and UPPER_SNAKE_CASE predicates.
 """
 
 from __future__ import annotations
@@ -15,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -33,12 +38,16 @@ FALLBACK_MODELS = [
     "gemini-pro",
 ]
 
-# ── Retry config ──────────────────────────────────────────────────────────────
-MAX_RETRIES   = 3
-BACKOFF_BASE  = 2
-SKIP_LOG_PATH = Path("extraction_errors.jsonl")
+# ── Retry / rate-limit config ─────────────────────────────────────────────────
+MAX_RETRIES        = 4
+BACKOFF_BASE       = 2       # seconds for transient errors
+DEFAULT_429_WAIT   = 30      # fallback wait if retryDelay not in error message
+MAX_429_WAIT       = 120     # cap on any single sleep
+# How many 429s on one model before we give up and switch fallback
+MAX_QUOTA_HITS     = 2
+SKIP_LOG_PATH      = Path("extraction_errors.jsonl")
 
-# ── Improved Prompt ───────────────────────────────────────────────────────────
+# ── Prompt ────────────────────────────────────────────────────────────────────
 TRIPLET_PROMPT = """\
 You are a knowledge-graph extraction engine.
 Extract ALL factual relationships from the text below.
@@ -60,9 +69,34 @@ Text:
 """
 
 
+# ── Error classification helpers ───────────────────────────────────────────────
+
 def _is_model_not_found(exc: Exception) -> bool:
     msg = str(exc).upper()
     return "404" in msg or "NOT_FOUND" in msg or "NOT FOUND" in msg
+
+
+def _is_quota_exhausted(exc: Exception) -> bool:
+    msg = str(exc).upper()
+    return "429" in msg or "RESOURCE_EXHAUSTED" in msg or "QUOTA" in msg
+
+
+def _parse_retry_delay(exc: Exception) -> float:
+    """
+    Extract the retryDelay seconds Google embeds in 429 error messages.
+    Falls back to DEFAULT_429_WAIT if not found.
+    Example: "Please retry in 19.126905886s."
+    """
+    text = str(exc)
+    # Try JSON field first: 'retryDelay': '19s'
+    m = re.search(r"['\"]retryDelay['\"]\s*:\s*['\"](\d+(?:\.\d+)?)s?['\"]", text)
+    if m:
+        return min(float(m.group(1)) + 2, MAX_429_WAIT)   # +2s jitter
+    # Try prose form: "retry in 19.1s" or "retry in 19s"
+    m = re.search(r"retry\s+in\s+(\d+(?:\.\d+)?)\s*s", text, re.IGNORECASE)
+    if m:
+        return min(float(m.group(1)) + 2, MAX_429_WAIT)
+    return DEFAULT_429_WAIT
 
 
 class TripletExtractor:
@@ -71,17 +105,19 @@ class TripletExtractor:
         llm: ChatGoogleGenerativeAI | None = None,
         model_name: str | None = None,
     ) -> None:
-        self._model_name = model_name or PRIMARY_MODEL
+        self._model_name  = model_name or PRIMARY_MODEL
+        self._quota_hits  = 0    # consecutive 429s on current model
         self._build_llm(self._model_name, llm)
 
     # ── LLM management ────────────────────────────────────────────────────────
 
     def _build_llm(self, model_name: str, llm=None) -> None:
-        self.llm = llm or ChatGoogleGenerativeAI(model=model_name, temperature=0)
+        self.llm         = llm or ChatGoogleGenerativeAI(model=model_name, temperature=0)
         self._model_name = model_name
-        logger.info("[TripletExtractor] Using model: %s", model_name)
+        self._quota_hits = 0
+        logger.info("[TripletExtractor] Active model: %s", model_name)
 
-    def _switch_to_fallback(self, failed_model: str) -> bool:
+    def _switch_to_fallback(self, failed_model: str, reason: str) -> bool:
         candidates = list(dict.fromkeys([PRIMARY_MODEL] + FALLBACK_MODELS))
         try:
             idx = candidates.index(failed_model)
@@ -89,10 +125,11 @@ class TripletExtractor:
             idx = -1
         for model in candidates[idx + 1:]:
             if model != failed_model:
-                logger.warning("[TripletExtractor] '%s' not found — switching to '%s'", failed_model, model)
+                logger.warning("[TripletExtractor] %s — switching '%s' → '%s'",
+                               reason, failed_model, model)
                 self._build_llm(model)
                 return True
-        logger.error("[TripletExtractor] All fallback models exhausted.")
+        logger.error("[TripletExtractor] All fallback models exhausted (%s).", reason)
         return False
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -127,34 +164,61 @@ class TripletExtractor:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 response = self.llm.invoke([HumanMessage(content=prompt)])
-                content = response.content
+                content  = response.content
                 if isinstance(content, list):
                     content = "".join(
                         p.get("text", "") if isinstance(p, dict) else str(p)
                         for p in content
                     )
+                self._quota_hits = 0   # reset on success
                 return self._parse_response(content, chunk)
 
             except json.JSONDecodeError as exc:
-                logger.warning("JSON parse error chunk %s attempt %d: %s", chunk.get("chunk_id"), attempt, exc)
+                logger.warning("JSON parse error chunk %s attempt %d: %s",
+                               chunk.get("chunk_id"), attempt, exc)
                 self._log_skip(chunk, reason=f"json_parse_error: {exc}")
                 return []
 
             except Exception as exc:  # noqa: BLE001
+
+                # ── 404: model not found → switch immediately ─────────────
                 if _is_model_not_found(exc):
-                    switched = self._switch_to_fallback(self._model_name)
+                    switched = self._switch_to_fallback(self._model_name, "404 NOT_FOUND")
                     if not switched:
                         return None
-                    logger.info("[TripletExtractor] Retrying chunk %s with %s", chunk.get("chunk_id"), self._model_name)
-                    continue  # retry same attempt with new model
+                    continue   # retry same attempt counter with new model
 
+                # ── 429: quota exhausted → wait, then maybe switch ────────
+                if _is_quota_exhausted(exc):
+                    self._quota_hits += 1
+                    wait = _parse_retry_delay(exc)
+                    logger.warning(
+                        "[TripletExtractor] 429 quota hit #%d on '%s'. "
+                        "Sleeping %.0fs (Google retryDelay)...",
+                        self._quota_hits, self._model_name, wait,
+                    )
+                    time.sleep(wait)
+
+                    if self._quota_hits >= MAX_QUOTA_HITS:
+                        switched = self._switch_to_fallback(
+                            self._model_name,
+                            f"quota exhausted after {self._quota_hits} hits"
+                        )
+                        if not switched:
+                            return None
+                    continue   # retry (possibly with new model)
+
+                # ── Transient error → exponential backoff ─────────────────
                 wait = BACKOFF_BASE ** attempt
-                logger.warning("API error chunk %s attempt %d/%d: %s — retry in %ds",
-                               chunk.get("chunk_id"), attempt, MAX_RETRIES, exc, wait)
+                logger.warning(
+                    "API error chunk %s attempt %d/%d: %s — retry in %ds",
+                    chunk.get("chunk_id"), attempt, MAX_RETRIES, exc, wait,
+                )
                 if attempt < MAX_RETRIES:
                     time.sleep(wait)
                 else:
-                    logger.error("Giving up on chunk %s after %d attempts", chunk.get("chunk_id"), MAX_RETRIES)
+                    logger.error("Giving up on chunk %s after %d attempts",
+                                 chunk.get("chunk_id"), MAX_RETRIES)
                     return None
         return None
 
@@ -182,7 +246,6 @@ class TripletExtractor:
         valid = []
         for item in parsed:
             if not all(k in item for k in ("subject", "predicate", "object")):
-                logger.debug("Dropping malformed triplet: %s", item)
                 continue
             valid.append({
                 "subject":   str(item["subject"]).strip(),

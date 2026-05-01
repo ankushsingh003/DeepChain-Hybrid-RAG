@@ -149,10 +149,11 @@ from ingestion.extractor import KnowledgeGraph, Entity, Relationship
 
 
 # ── Tunable batch sizes ────────────────────────────────────────────────────────
-CHUNK_BATCH_SIZE  = 50    # chunks processed per loop iteration
-EMBED_BATCH_SIZE  = 50    # chunks sent to Gemini embedding API per call
-TRIPLET_BATCH_SIZE = 20   # chunks sent to Gemini LLM per extraction batch
-CHECKPOINT_FILE   = "ingestion_checkpoint.json"
+CHUNK_BATCH_SIZE   = 30    # chunks per loop (reduced for free-tier quota)
+EMBED_BATCH_SIZE   = 50    # chunks per Gemini embedding call
+TRIPLET_BATCH_SIZE = 10    # chunks per LLM extraction batch (free-tier safe)
+INTER_BATCH_DELAY  = 5.0   # seconds between extraction batches
+CHECKPOINT_FILE    = "ingestion_checkpoint.json"
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -160,7 +161,7 @@ class IngestionPipeline:
     def __init__(self, data_path: str = "data/sample_docs"):
         self.loader          = DocumentLoader(data_path)
         self.chunker         = DocumentChunker(chunk_size=1000, chunk_overlap=200)
-        self.extractor       = GraphExtractor(rate_limit_delay=6.0, retry_base_delay=15.0)
+        self.extractor       = GraphExtractor(rate_limit_delay=4.0, retry_base_delay=10.0)
         self.neo4j_client    = Neo4jClient()
         self.weaviate_client = WeaviateClient()
         self.embedder        = GeminiEmbedder()
@@ -283,6 +284,9 @@ class IngestionPipeline:
                 except Exception as e:
                     import traceback
                     print(f"  [neo4j] ERROR writing to graph: {e}\n{traceback.format_exc()}")
+
+            # ── Inter-batch sleep to respect free-tier RPM limits ──────────────
+            time.sleep(INTER_BATCH_DELAY)
 
             # ── Save checkpoint after each successful batch ────────────────────
             batches_done += 1

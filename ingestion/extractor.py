@@ -2,13 +2,13 @@
 ingestion/extractor.py — DeepChain Hybrid-RAG
 Module: Knowledge Graph Extraction Orchestrator
 
-FIXES:
-  - Replaced deprecated 'gemini-1.5-flash-latest' with 'gemini-2.0-flash'
-  - Added FALLBACK_MODELS: on 404/NOT_FOUND, switches model automatically
-  - Richer prompt with entity types and UPPER_SNAKE_CASE predicates
-  - GraphExtractor._extract_single() now detects model-not-found and retries
-    with the next fallback before raising
-  - rate_limit_delay and retry_base_delay exposed as constructor params
+FIXES v3:
+  - 429 RESOURCE_EXHAUSTED: parse retryDelay from Google error, sleep exactly
+    that long, then retry. After MAX_QUOTA_HITS consecutive 429s on one model,
+    switch to next fallback model.
+  - 404 NOT_FOUND: immediate model switch.
+  - FALLBACK_MODELS: gemini-2.0-flash → gemini-1.5-flash → gemini-1.5-pro → gemini-pro
+  - Richer prompt with entity types + UPPER_SNAKE_CASE predicates.
 """
 
 from __future__ import annotations
@@ -16,9 +16,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
-import uuid
-from typing import List, Dict, Any, Iterator, Optional
+from typing import List, Dict, Any, Iterator
 
 from pydantic import BaseModel, Field
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -43,13 +43,35 @@ FALLBACK_MODELS = [
     "gemini-pro",
 ]
 
+DEFAULT_429_WAIT = 30
+MAX_429_WAIT     = 120
+MAX_QUOTA_HITS   = 2
+
+
+# ── Error helpers ─────────────────────────────────────────────────────────────
 
 def _is_model_not_found(exc: Exception) -> bool:
     msg = str(exc).upper()
     return "404" in msg or "NOT_FOUND" in msg or "NOT FOUND" in msg
 
 
-# ── Schema Definitions (Pydantic for LLM Output) ──────────────────────────────
+def _is_quota_exhausted(exc: Exception) -> bool:
+    msg = str(exc).upper()
+    return "429" in msg or "RESOURCE_EXHAUSTED" in msg or "QUOTA" in msg
+
+
+def _parse_retry_delay(exc: Exception) -> float:
+    text = str(exc)
+    m = re.search(r"['\"]retryDelay['\"]\s*:\s*['\"](\d+(?:\.\d+)?)s?['\"]", text)
+    if m:
+        return min(float(m.group(1)) + 2, MAX_429_WAIT)
+    m = re.search(r"retry\s+in\s+(\d+(?:\.\d+)?)\s*s", text, re.IGNORECASE)
+    if m:
+        return min(float(m.group(1)) + 2, MAX_429_WAIT)
+    return DEFAULT_429_WAIT
+
+
+# ── Schema Definitions ────────────────────────────────────────────────────────
 
 class Entity(BaseModel):
     name:        str = Field(description="Name of the entity")
@@ -67,34 +89,36 @@ class KnowledgeGraph(BaseModel):
     relationships: List[Relationship] = Field(description="All extracted relationships")
 
 
-# ── GraphExtractor ─────────────────────────────────────────────────────────────
+# ── GraphExtractor ────────────────────────────────────────────────────────────
 
 class GraphExtractor:
     """
     Core extractor that processes text chunks into flat triplet lists.
-    Supports automatic fallback to alternative Gemini models on 404.
+    Handles 429 quota exhaustion with Google-provided retryDelay + model fallback.
     """
 
     def __init__(
         self,
         model_name: str | None = None,
-        max_retries: int = 3,
-        rate_limit_delay: float = 1.5,
+        max_retries: int = 4,
+        rate_limit_delay: float = 2.0,
         retry_base_delay: float = 5.0,
     ):
-        self._model_name    = model_name or PRIMARY_MODEL
-        self.max_retries    = max_retries
+        self._model_name      = model_name or PRIMARY_MODEL
+        self.max_retries      = max_retries
         self.rate_limit_delay = rate_limit_delay
         self.retry_base_delay = retry_base_delay
-        self.parser         = PydanticOutputParser(pydantic_object=KnowledgeGraph)
+        self._quota_hits      = 0
+        self.parser           = PydanticOutputParser(pydantic_object=KnowledgeGraph)
         self._build_chain(self._model_name)
 
     # ── LLM management ────────────────────────────────────────────────────────
 
     def _build_chain(self, model_name: str) -> None:
-        self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
+        self.llm         = ChatGoogleGenerativeAI(model=model_name, temperature=0)
         self._model_name = model_name
-        self.prompt = ChatPromptTemplate.from_template(
+        self._quota_hits = 0
+        self.prompt      = ChatPromptTemplate.from_template(
             "Extract entities and their relationships from the following text to build a knowledge graph.\n"
             "Focus on facts relevant to business, finance, medical, and legal domains.\n"
             "Use UPPER_SNAKE_CASE for relationship types (e.g. TREATS, CAUSES, OWNED_BY, LOCATED_IN).\n"
@@ -102,9 +126,9 @@ class GraphExtractor:
             "{format_instructions}\n"
             "Text: {text}\n"
         )
-        logger.info("[GraphExtractor] Using model: %s", model_name)
+        logger.info("[GraphExtractor] Active model: %s", model_name)
 
-    def _switch_to_fallback(self, failed_model: str) -> bool:
+    def _switch_to_fallback(self, failed_model: str, reason: str) -> bool:
         candidates = list(dict.fromkeys([PRIMARY_MODEL] + FALLBACK_MODELS))
         try:
             idx = candidates.index(failed_model)
@@ -112,10 +136,11 @@ class GraphExtractor:
             idx = -1
         for model in candidates[idx + 1:]:
             if model != failed_model:
-                logger.warning("[GraphExtractor] '%s' not found — switching to '%s'", failed_model, model)
+                logger.warning("[GraphExtractor] %s — switching '%s' → '%s'",
+                               reason, failed_model, model)
                 self._build_chain(model)
                 return True
-        logger.error("[GraphExtractor] All fallback models exhausted.")
+        logger.error("[GraphExtractor] All fallback models exhausted (%s).", reason)
         return False
 
     # ── Single-chunk extraction ───────────────────────────────────────────────
@@ -135,22 +160,48 @@ class GraphExtractor:
                         p.get("text", "") if isinstance(p, dict) else str(p)
                         for p in content
                     )
+                self._quota_hits = 0   # reset on success
                 return self.parser.parse(content)
 
             except Exception as exc:
+
+                # 404: switch model immediately
                 if _is_model_not_found(exc):
-                    switched = self._switch_to_fallback(self._model_name)
+                    switched = self._switch_to_fallback(self._model_name, "404 NOT_FOUND")
                     if switched:
-                        # Rebuild _input with new model prompt and retry
                         _input = self.prompt.format_prompt(
                             text=text,
                             format_instructions=self.parser.get_format_instructions()
                         )
-                        logger.info("[GraphExtractor] Retrying with %s", self._model_name)
                         continue
-                    else:
-                        return KnowledgeGraph(entities=[], relationships=[])
+                    return KnowledgeGraph(entities=[], relationships=[])
 
+                # 429: honour Google's retryDelay, then maybe switch model
+                if _is_quota_exhausted(exc):
+                    self._quota_hits += 1
+                    wait = _parse_retry_delay(exc)
+                    logger.warning(
+                        "[GraphExtractor] 429 quota hit #%d on '%s'. "
+                        "Sleeping %.0fs...",
+                        self._quota_hits, self._model_name, wait,
+                    )
+                    time.sleep(wait)
+
+                    if self._quota_hits >= MAX_QUOTA_HITS:
+                        switched = self._switch_to_fallback(
+                            self._model_name,
+                            f"quota exhausted after {self._quota_hits} hits"
+                        )
+                        if switched:
+                            _input = self.prompt.format_prompt(
+                                text=text,
+                                format_instructions=self.parser.get_format_instructions()
+                            )
+                        else:
+                            return KnowledgeGraph(entities=[], relationships=[])
+                    continue
+
+                # Transient error: exponential backoff
                 wait = self.retry_base_delay * (2 ** (attempt - 1))
                 logger.warning("  [extractor] Attempt %d/%d failed: %s", attempt, self.max_retries, exc)
                 if attempt < self.max_retries:
@@ -164,9 +215,7 @@ class GraphExtractor:
     # ── Batch extraction ──────────────────────────────────────────────────────
 
     def extract(self, chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Process a list of chunks → flat list of triplet dicts."""
-        all_triplets = []
-        seen_entity_names: set[str] = set()
+        all_triplets: list[dict] = []
         total = len(chunks)
 
         for i, chunk in enumerate(chunks):
@@ -179,19 +228,17 @@ class GraphExtractor:
 
             kg = self._extract_single(text)
 
-            for entity in kg.entities:
-                seen_entity_names.add(entity.name)
-
             for rel in kg.relationships:
                 all_triplets.append({
-                    "subject":        rel.source,
-                    "predicate":      rel.type.upper().replace(" ", "_"),
-                    "object":         rel.target,
-                    "description":    rel.description,
+                    "subject":         rel.source,
+                    "predicate":       rel.type.upper().replace(" ", "_"),
+                    "object":          rel.target,
+                    "description":     rel.description,
                     "source_chunk_id": chunk_id,
-                    "source_file":    source,
+                    "source_file":     source,
                 })
 
+            # Polite inter-chunk delay to stay under RPM limits
             if i < total - 1:
                 time.sleep(self.rate_limit_delay)
 
@@ -202,24 +249,21 @@ class GraphExtractor:
         chunks: List[Dict[str, Any]],
         batch_size: int = 20,
     ) -> Iterator[List[Dict[str, Any]]]:
-        """Generator version of extract()."""
         for start in range(0, len(chunks), batch_size):
             yield self.extract(chunks[start: start + batch_size])
 
 
-# ── KnowledgeGraphExtractor (High-Level Orchestrator) ─────────────────────────
+# ── KnowledgeGraphExtractor (High-Level Orchestrator) ────────────────────────
 
 class KnowledgeGraphExtractor:
-    """Extracts a KnowledgeGraph from raw document text."""
-
     def __init__(
         self,
         model_name: str | None = None,
         chunk_size: int = CHUNK_SIZE,
         chunk_overlap: int = CHUNK_OVERLAP,
     ) -> None:
-        model_name     = model_name or PRIMARY_MODEL
-        self.extractor = GraphExtractor(model_name=model_name)
+        model_name         = model_name or PRIMARY_MODEL
+        self.extractor     = GraphExtractor(model_name=model_name)
         self.chunk_size    = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -228,34 +272,26 @@ class KnowledgeGraphExtractor:
         triplets = self.extractor.extract(chunks)
         return self._triplets_to_kg(triplets)
 
-    def _chunk_text(self, text: str, source_doc: str) -> list[dict[str, Any]]:
+    def _chunk_text(self, text: str, source_doc: str) -> list[dict]:
         chunks, start, idx = [], 0, 0
         while start < len(text):
-            end        = start + self.chunk_size
-            chunk_text = text[start:end]
-            if chunk_text.strip():
-                chunks.append({
-                    "chunk_id": f"{source_doc}::chunk-{idx:04d}",
-                    "text":     chunk_text,
-                    "source":   source_doc,
-                })
+            ct = text[start: start + self.chunk_size]
+            if ct.strip():
+                chunks.append({"chunk_id": f"{source_doc}::chunk-{idx:04d}",
+                                "text": ct, "source": source_doc})
                 idx += 1
             start += self.chunk_size - self.chunk_overlap
         return chunks
 
-    def _triplets_to_kg(self, triplets: list[dict[str, str]]) -> KnowledgeGraph:
-        kg_data       = {"entities": [], "relationships": []}
-        seen_entities: set[str] = set()
+    def _triplets_to_kg(self, triplets: list[dict]) -> KnowledgeGraph:
+        kg_data, seen = {"entities": [], "relationships": []}, set()
         for t in triplets:
-            subj, pred, obj = t["subject"], t["predicate"], t["object"]
-            if subj not in seen_entities:
-                kg_data["entities"].append(Entity(name=subj, type="Entity", description=""))
-                seen_entities.add(subj)
-            if obj not in seen_entities:
-                kg_data["entities"].append(Entity(name=obj, type="Entity", description=""))
-                seen_entities.add(obj)
+            for name in (t["subject"], t["object"]):
+                if name not in seen:
+                    kg_data["entities"].append(Entity(name=name, type="Entity", description=""))
+                    seen.add(name)
             kg_data["relationships"].append(Relationship(
-                source=subj, target=obj, type=pred,
-                description=t.get("source_chunk_id", "")
+                source=t["subject"], target=t["object"],
+                type=t["predicate"], description=t.get("source_chunk_id", "")
             ))
         return KnowledgeGraph(**kg_data)

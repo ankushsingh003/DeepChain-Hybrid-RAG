@@ -34,6 +34,11 @@ def _is_model_not_found(exc: Exception) -> bool:
     return "404" in msg or "NOT_FOUND" in msg or "NOT FOUND" in msg
 
 
+def _is_quota_exhausted(exc: Exception) -> bool:
+    msg = str(exc).upper()
+    return "429" in msg or "RESOURCE_EXHAUSTED" in msg or "QUOTA" in msg
+
+
 class StrategyAdvisor:
     """
     The Strategy Advisor that provides full trading strategy approaches.
@@ -69,8 +74,10 @@ class StrategyAdvisor:
         logger.error("[StrategyAdvisor] All fallback models exhausted.")
         return False
 
-    def _safe_generate(self, prompt: str, max_retries: int = 3) -> str:
-        """Generate content with retry and model fallback support."""
+    def _safe_generate(self, prompt: str, max_retries: int = 4) -> str:
+        """Generate content with retry, 429 quota handling, and model fallback."""
+        import re
+        _quota_hits = 0
         for attempt in range(1, max_retries + 1):
             try:
                 response = self.model.generate_content(prompt)
@@ -79,7 +86,22 @@ class StrategyAdvisor:
                 if _is_model_not_found(exc):
                     if self._switch_fallback():
                         continue
-                    return f"Error: No available model could process this request."
+                    return "Error: No available model could process this request."
+                if _is_quota_exhausted(exc):
+                    _quota_hits += 1
+                    # Parse Google retryDelay from error message
+                    text = str(exc)
+                    m = re.search(r"retryDelay.*?(\d+(?:\.\d+)?)s", text)
+                    wait = min(float(m.group(1)) + 2, 120) if m else 30
+                    logger.warning("[StrategyAdvisor] 429 quota hit #%d on %s — sleeping %.0fs",
+                                   _quota_hits, self._model_name, wait)
+                    time.sleep(wait)
+                    if _quota_hits >= 2:
+                        if self._switch_fallback():
+                            _quota_hits = 0
+                        else:
+                            return "Error: All models quota exhausted."
+                    continue
                 wait = 2 ** attempt
                 logger.warning("[StrategyAdvisor] Attempt %d/%d failed: %s — retry in %ds",
                                attempt, max_retries, exc, wait)
