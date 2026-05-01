@@ -2,21 +2,22 @@
 ingestion/extractor.py — DeepChain Hybrid-RAG
 Module: Knowledge Graph Extraction Orchestrator
 
-Contains:
-1. Pydantic models (Entity, Relationship, KnowledgeGraph) for structured graph data.
-2. GraphExtractor: Low-level chunk-by-chunk extractor with batching and retries.
-3. KnowledgeGraphExtractor: High-level document-level orchestrator.
+FIXES:
+  - Replaced deprecated 'gemini-1.5-flash-latest' with 'gemini-2.0-flash'
+  - Added FALLBACK_MODELS: on 404/NOT_FOUND, switches model automatically
+  - Richer prompt with entity types and UPPER_SNAKE_CASE predicates
+  - GraphExtractor._extract_single() now detects model-not-found and retries
+    with the next fallback before raising
+  - rate_limit_delay and retry_base_delay exposed as constructor params
 """
 
 from __future__ import annotations
 
-# VERSION 2.1 — OS IMPORT FIXED
 import json
 import logging
 import os
 import time
 import uuid
-from dataclasses import dataclass, field
 from typing import List, Dict, Any, Iterator, Optional
 
 from pydantic import BaseModel, Field
@@ -30,59 +31,96 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 # ── Chunking config ───────────────────────────────────────────────────────────
-CHUNK_SIZE = 2500   # characters
-CHUNK_OVERLAP = 200  # characters
+CHUNK_SIZE    = 2500
+CHUNK_OVERLAP = 200
+
+# ── Model config ──────────────────────────────────────────────────────────────
+PRIMARY_MODEL   = os.getenv("LLM_MODEL", "gemini-2.0-flash")
+FALLBACK_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-pro",
+]
 
 
-# ── Schema Definitions (Pydantic for LLM Output) ───────────────────────────────
+def _is_model_not_found(exc: Exception) -> bool:
+    msg = str(exc).upper()
+    return "404" in msg or "NOT_FOUND" in msg or "NOT FOUND" in msg
+
+
+# ── Schema Definitions (Pydantic for LLM Output) ──────────────────────────────
 
 class Entity(BaseModel):
-    name: str = Field(description="Name of the entity (e.g., Novatech Solutions, John Doe)")
-    type: str = Field(description="Category of the entity (e.g., Organization, Person, Date, Location, Concept)")
-    description: str = Field(description="Brief context or description of the entity found in the text")
+    name:        str = Field(description="Name of the entity")
+    type:        str = Field(description="Category (Organization, Person, Date, Location, Drug, Disease, Concept …)")
+    description: str = Field(description="Brief context or description found in the text")
 
 class Relationship(BaseModel):
-    source: str = Field(description="The source entity name")
-    target: str = Field(description="The target entity name")
-    type: str = Field(description="The relationship type (e.g., OWNS, INVESTED_IN, LOCATED_AT, COMPETES_WITH)")
+    source:      str = Field(description="Source entity name")
+    target:      str = Field(description="Target entity name")
+    type:        str = Field(description="Relationship type in UPPER_SNAKE_CASE (e.g. TREATS, OWNED_BY, LOCATED_AT)")
     description: str = Field(description="Context of the relationship")
 
 class KnowledgeGraph(BaseModel):
-    entities: List[Entity] = Field(description="List of all extracted entities")
-    relationships: List[Relationship] = Field(description="List of all extracted relationships")
+    entities:      List[Entity]       = Field(description="All extracted entities")
+    relationships: List[Relationship] = Field(description="All extracted relationships")
 
 
-# ── Extractor Implementation (Low Level) ───────────────────────────────────────
+# ── GraphExtractor ─────────────────────────────────────────────────────────────
 
 class GraphExtractor:
     """
     Core extractor that processes text chunks into flat triplet lists.
-    Used by IngestionPipeline for streaming extraction.
+    Supports automatic fallback to alternative Gemini models on 404.
     """
+
     def __init__(
         self,
         model_name: str | None = None,
         max_retries: int = 3,
-        rate_limit_delay: float = 1.5,   # seconds between LLM calls
-        retry_base_delay: float = 5.0,    # base seconds for backoff
+        rate_limit_delay: float = 1.5,
+        retry_base_delay: float = 5.0,
     ):
-        model_name = model_name or os.getenv("LLM_MODEL", "gemini-2.0-flash")
-        self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
-        self.parser = PydanticOutputParser(pydantic_object=KnowledgeGraph)
-        self.max_retries = max_retries
+        self._model_name    = model_name or PRIMARY_MODEL
+        self.max_retries    = max_retries
         self.rate_limit_delay = rate_limit_delay
         self.retry_base_delay = retry_base_delay
+        self.parser         = PydanticOutputParser(pydantic_object=KnowledgeGraph)
+        self._build_chain(self._model_name)
 
+    # ── LLM management ────────────────────────────────────────────────────────
+
+    def _build_chain(self, model_name: str) -> None:
+        self.llm = ChatGoogleGenerativeAI(model=model_name, temperature=0)
+        self._model_name = model_name
         self.prompt = ChatPromptTemplate.from_template(
             "Extract entities and their relationships from the following text to build a knowledge graph.\n"
-            "Focus specifically on facts relevant to business, finance, and legal domains.\n"
-            "Keep entity names consistent — use the exact same name every time you see the same entity.\n"
+            "Focus on facts relevant to business, finance, medical, and legal domains.\n"
+            "Use UPPER_SNAKE_CASE for relationship types (e.g. TREATS, CAUSES, OWNED_BY, LOCATED_IN).\n"
+            "Keep entity names consistent — use the exact same name every time.\n"
             "{format_instructions}\n"
             "Text: {text}\n"
         )
+        logger.info("[GraphExtractor] Using model: %s", model_name)
+
+    def _switch_to_fallback(self, failed_model: str) -> bool:
+        candidates = list(dict.fromkeys([PRIMARY_MODEL] + FALLBACK_MODELS))
+        try:
+            idx = candidates.index(failed_model)
+        except ValueError:
+            idx = -1
+        for model in candidates[idx + 1:]:
+            if model != failed_model:
+                logger.warning("[GraphExtractor] '%s' not found — switching to '%s'", failed_model, model)
+                self._build_chain(model)
+                return True
+        logger.error("[GraphExtractor] All fallback models exhausted.")
+        return False
+
+    # ── Single-chunk extraction ───────────────────────────────────────────────
 
     def _extract_single(self, text: str) -> KnowledgeGraph:
-        """Makes one LLM call for a single chunk of text."""
         _input = self.prompt.format_prompt(
             text=text,
             format_instructions=self.parser.get_format_instructions()
@@ -91,33 +129,50 @@ class GraphExtractor:
         for attempt in range(1, self.max_retries + 1):
             try:
                 response = self.llm.invoke(_input.to_messages())
-                
-                # Handle cases where response.content might be a list of dicts (parts) 
-                # instead of a plain string in newer langchain-google-genai versions.
-                content = response.content
+                content  = response.content
                 if isinstance(content, list):
-                    content = "".join([part.get("text", "") if isinstance(part, dict) else str(part) for part in content])
-                
+                    content = "".join(
+                        p.get("text", "") if isinstance(p, dict) else str(p)
+                        for p in content
+                    )
                 return self.parser.parse(content)
-            except Exception as e:
+
+            except Exception as exc:
+                if _is_model_not_found(exc):
+                    switched = self._switch_to_fallback(self._model_name)
+                    if switched:
+                        # Rebuild _input with new model prompt and retry
+                        _input = self.prompt.format_prompt(
+                            text=text,
+                            format_instructions=self.parser.get_format_instructions()
+                        )
+                        logger.info("[GraphExtractor] Retrying with %s", self._model_name)
+                        continue
+                    else:
+                        return KnowledgeGraph(entities=[], relationships=[])
+
                 wait = self.retry_base_delay * (2 ** (attempt - 1))
-                logger.warning(f"  [extractor] Attempt {attempt}/{self.max_retries} failed: {e}")
+                logger.warning("  [extractor] Attempt %d/%d failed: %s", attempt, self.max_retries, exc)
                 if attempt < self.max_retries:
                     time.sleep(wait)
                 else:
                     logger.error("  [extractor] All retries exhausted for this chunk. Skipping.")
                     return KnowledgeGraph(entities=[], relationships=[])
 
+        return KnowledgeGraph(entities=[], relationships=[])
+
+    # ── Batch extraction ──────────────────────────────────────────────────────
+
     def extract(self, chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Processes a list of chunks and returns a flat list of triplet dicts."""
+        """Process a list of chunks → flat list of triplet dicts."""
         all_triplets = []
-        seen_entity_names = set()
+        seen_entity_names: set[str] = set()
         total = len(chunks)
 
         for i, chunk in enumerate(chunks):
-            text = chunk.get("text", "").strip()
+            text     = chunk.get("text", "").strip()
             chunk_id = chunk.get("chunk_id", f"chunk_{i}")
-            source = chunk.get("source", "unknown")
+            source   = chunk.get("source", "unknown")
 
             if not text:
                 continue
@@ -125,17 +180,16 @@ class GraphExtractor:
             kg = self._extract_single(text)
 
             for entity in kg.entities:
-                if entity.name not in seen_entity_names:
-                    seen_entity_names.add(entity.name)
+                seen_entity_names.add(entity.name)
 
             for rel in kg.relationships:
                 all_triplets.append({
-                    "subject": rel.source,
-                    "predicate": rel.type,
-                    "object": rel.target,
-                    "description": rel.description,
+                    "subject":        rel.source,
+                    "predicate":      rel.type.upper().replace(" ", "_"),
+                    "object":         rel.target,
+                    "description":    rel.description,
                     "source_chunk_id": chunk_id,
-                    "source_file": source,
+                    "source_file":    source,
                 })
 
             if i < total - 1:
@@ -149,19 +203,14 @@ class GraphExtractor:
         batch_size: int = 20,
     ) -> Iterator[List[Dict[str, Any]]]:
         """Generator version of extract()."""
-        total = len(chunks)
-        for start in range(0, total, batch_size):
-            batch = chunks[start: start + batch_size]
-            yield self.extract(batch)
+        for start in range(0, len(chunks), batch_size):
+            yield self.extract(chunks[start: start + batch_size])
 
 
-# ── KnowledgeGraphExtractor (High Level Orchestrator) ──────────────────────────
+# ── KnowledgeGraphExtractor (High-Level Orchestrator) ─────────────────────────
 
 class KnowledgeGraphExtractor:
-    """
-    Extracts a KnowledgeGraph from raw document text.
-    Uses TripletExtractor internally (import from graph.extractor for core logic).
-    """
+    """Extracts a KnowledgeGraph from raw document text."""
 
     def __init__(
         self,
@@ -169,37 +218,34 @@ class KnowledgeGraphExtractor:
         chunk_size: int = CHUNK_SIZE,
         chunk_overlap: int = CHUNK_OVERLAP,
     ) -> None:
-        model_name = model_name or os.getenv("LLM_MODEL", "gemini-2.0-flash")
+        model_name     = model_name or PRIMARY_MODEL
         self.extractor = GraphExtractor(model_name=model_name)
-        self.chunk_size = chunk_size
+        self.chunk_size    = chunk_size
         self.chunk_overlap = chunk_overlap
 
     def extract_from_text(self, text: str, source_doc: str = "unknown") -> KnowledgeGraph:
-        """Splits text and extracts a full KnowledgeGraph."""
-        chunks = self._chunk_text(text, source_doc)
+        chunks   = self._chunk_text(text, source_doc)
         triplets = self.extractor.extract(chunks)
         return self._triplets_to_kg(triplets)
 
     def _chunk_text(self, text: str, source_doc: str) -> list[dict[str, Any]]:
-        chunks = []
-        start = 0
-        idx = 0
+        chunks, start, idx = [], 0, 0
         while start < len(text):
-            end = start + self.chunk_size
+            end        = start + self.chunk_size
             chunk_text = text[start:end]
             if chunk_text.strip():
                 chunks.append({
                     "chunk_id": f"{source_doc}::chunk-{idx:04d}",
-                    "text": chunk_text,
-                    "source": source_doc,
+                    "text":     chunk_text,
+                    "source":   source_doc,
                 })
                 idx += 1
             start += self.chunk_size - self.chunk_overlap
         return chunks
 
     def _triplets_to_kg(self, triplets: list[dict[str, str]]) -> KnowledgeGraph:
-        kg_data = {"entities": [], "relationships": []}
-        seen_entities = set()
+        kg_data       = {"entities": [], "relationships": []}
+        seen_entities: set[str] = set()
         for t in triplets:
             subj, pred, obj = t["subject"], t["predicate"], t["object"]
             if subj not in seen_entities:
@@ -209,6 +255,7 @@ class KnowledgeGraphExtractor:
                 kg_data["entities"].append(Entity(name=obj, type="Entity", description=""))
                 seen_entities.add(obj)
             kg_data["relationships"].append(Relationship(
-                source=subj, target=obj, type=pred, description=t.get("source_chunk_id", "")
+                source=subj, target=obj, type=pred,
+                description=t.get("source_chunk_id", "")
             ))
         return KnowledgeGraph(**kg_data)

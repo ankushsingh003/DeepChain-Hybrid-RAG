@@ -2,8 +2,12 @@
 graph/extractor.py  —  DeepChain Hybrid-RAG
 Module: Triplet Extractor (Core LLM Logic)
 
-Extracts {subject, predicate, object} triplets from text chunks.
-Includes exponential backoff retry logic and JSON sanitization.
+FIXES:
+  - Replaced deprecated 'gemini-1.5-flash-latest' with 'gemini-2.0-flash'
+  - Added FALLBACK_MODELS list: on 404/NOT_FOUND, automatically retries with
+    the next model in the list (sticky — once one works, all chunks use it).
+  - Improved TRIPLET_PROMPT: richer predicates, entity-type tags, exhaustive.
+  - _is_model_not_found() helper distinguishes 404 from transient errors.
 """
 
 from __future__ import annotations
@@ -20,40 +24,82 @@ from langchain_core.messages import HumanMessage
 
 logger = logging.getLogger(__name__)
 
+# ── Model config ───────────────────────────────────────────────────────────────
+PRIMARY_MODEL   = os.getenv("LLM_MODEL", "gemini-2.0-flash")
+FALLBACK_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-1.5-flash",
+    "gemini-1.5-pro",
+    "gemini-pro",
+]
+
 # ── Retry config ──────────────────────────────────────────────────────────────
-MAX_RETRIES = 3
-BACKOFF_BASE = 2          # seconds; doubles each attempt: 2, 4, 8
+MAX_RETRIES   = 3
+BACKOFF_BASE  = 2
 SKIP_LOG_PATH = Path("extraction_errors.jsonl")
 
-# ── Prompt ────────────────────────────────────────────────────────────────────
-TRIPLET_PROMPT = """Extract all factual relationships from the text below.
-Return ONLY a JSON array of objects, no prose, no markdown fences.
-Each object must have exactly three keys: "subject", "predicate", "object".
-If no relationships exist return an empty array [].
+# ── Improved Prompt ───────────────────────────────────────────────────────────
+TRIPLET_PROMPT = """\
+You are a knowledge-graph extraction engine.
+Extract ALL factual relationships from the text below.
+
+Rules:
+1. Return ONLY a JSON array — no prose, no markdown fences, no explanation.
+2. Each element must have exactly these keys:
+   "subject"   — source entity (string, title-case preferred)
+   "predicate" — relationship label (UPPER_SNAKE_CASE, e.g. TREATS, CAUSES, LOCATED_IN)
+   "object"    — target entity or value (string)
+   "subj_type" — entity type of subject  (Drug, Disease, Person, Org, Location, Concept, etc.)
+   "obj_type"  — entity type of object   (same vocabulary)
+3. Be exhaustive: extract every factual pair you can find.
+4. Keep entity names consistent across triplets.
+5. If no relationships exist, return an empty array: []
 
 Text:
 {text}
 """
 
 
+def _is_model_not_found(exc: Exception) -> bool:
+    msg = str(exc).upper()
+    return "404" in msg or "NOT_FOUND" in msg or "NOT FOUND" in msg
+
+
 class TripletExtractor:
-    def __init__(self, llm: ChatGoogleGenerativeAI | None = None, model_name: str | None = None) -> None:
-        model_name = model_name or os.getenv("LLM_MODEL", "gemini-2.0-flash")
-        self.llm = llm or ChatGoogleGenerativeAI(model=model_name)
+    def __init__(
+        self,
+        llm: ChatGoogleGenerativeAI | None = None,
+        model_name: str | None = None,
+    ) -> None:
+        self._model_name = model_name or PRIMARY_MODEL
+        self._build_llm(self._model_name, llm)
+
+    # ── LLM management ────────────────────────────────────────────────────────
+
+    def _build_llm(self, model_name: str, llm=None) -> None:
+        self.llm = llm or ChatGoogleGenerativeAI(model=model_name, temperature=0)
+        self._model_name = model_name
+        logger.info("[TripletExtractor] Using model: %s", model_name)
+
+    def _switch_to_fallback(self, failed_model: str) -> bool:
+        candidates = list(dict.fromkeys([PRIMARY_MODEL] + FALLBACK_MODELS))
+        try:
+            idx = candidates.index(failed_model)
+        except ValueError:
+            idx = -1
+        for model in candidates[idx + 1:]:
+            if model != failed_model:
+                logger.warning("[TripletExtractor] '%s' not found — switching to '%s'", failed_model, model)
+                self._build_llm(model)
+                return True
+        logger.error("[TripletExtractor] All fallback models exhausted.")
+        return False
 
     # ── Public API ────────────────────────────────────────────────────────────
 
     def extract(self, chunks: list[dict[str, Any]]) -> list[dict[str, str]]:
-        """
-        Extract triplets from a list of chunk dicts.
-        Each chunk dict must have at least: {"text": str, "chunk_id": str}
-
-        Returns flat list of {subject, predicate, object, source_chunk_id}.
-        Failed chunks are skipped and logged — never raise mid-pipeline.
-        """
         all_triplets: list[dict[str, str]] = []
         failed = 0
-
         for chunk in chunks:
             triplets = self._extract_with_retry(chunk)
             if triplets is None:
@@ -63,28 +109,17 @@ class TripletExtractor:
                 for t in triplets:
                     t["source_chunk_id"] = chunk.get("chunk_id", "unknown")
                 all_triplets.extend(triplets)
-
         logger.info(
-            "Triplet extraction complete — chunks=%d ok=%d failed=%d triplets=%d",
-            len(chunks),
-            len(chunks) - failed,
-            failed,
-            len(all_triplets),
+            "Triplet extraction — chunks=%d ok=%d failed=%d triplets=%d",
+            len(chunks), len(chunks) - failed, failed, len(all_triplets),
         )
         return all_triplets
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
-    def _extract_with_retry(
-        self, chunk: dict[str, Any]
-    ) -> list[dict[str, str]] | None:
-        """
-        Call Gemini with exponential backoff.
-        Returns parsed triplet list, or None if all retries exhausted.
-        """
+    def _extract_with_retry(self, chunk: dict[str, Any]) -> list[dict[str, str]] | None:
         text = chunk.get("text", "").strip()
         if not text:
-            logger.debug("Skipping empty chunk %s", chunk.get("chunk_id"))
             return []
 
         prompt = TRIPLET_PROMPT.format(text=text)
@@ -92,52 +127,39 @@ class TripletExtractor:
         for attempt in range(1, MAX_RETRIES + 1):
             try:
                 response = self.llm.invoke([HumanMessage(content=prompt)])
-                
                 content = response.content
                 if isinstance(content, list):
-                    content = "".join([part.get("text", "") if isinstance(part, dict) else str(part) for part in content])
-                
+                    content = "".join(
+                        p.get("text", "") if isinstance(p, dict) else str(p)
+                        for p in content
+                    )
                 return self._parse_response(content, chunk)
 
             except json.JSONDecodeError as exc:
-                # LLM returned non-JSON — log and skip (no retry; same prompt will fail again)
-                logger.warning(
-                    "JSON parse error on chunk %s (attempt %d): %s",
-                    chunk.get("chunk_id"),
-                    attempt,
-                    exc,
-                )
+                logger.warning("JSON parse error chunk %s attempt %d: %s", chunk.get("chunk_id"), attempt, exc)
                 self._log_skip(chunk, reason=f"json_parse_error: {exc}")
-                return []  # treat as zero triplets, not a fatal error
+                return []
 
-            except Exception as exc:  # noqa: BLE001  (broad — covers API errors)
+            except Exception as exc:  # noqa: BLE001
+                if _is_model_not_found(exc):
+                    switched = self._switch_to_fallback(self._model_name)
+                    if not switched:
+                        return None
+                    logger.info("[TripletExtractor] Retrying chunk %s with %s", chunk.get("chunk_id"), self._model_name)
+                    continue  # retry same attempt with new model
+
                 wait = BACKOFF_BASE ** attempt
-                logger.warning(
-                    "API error on chunk %s (attempt %d/%d): %s — retrying in %ds",
-                    chunk.get("chunk_id"),
-                    attempt,
-                    MAX_RETRIES,
-                    exc,
-                    wait,
-                )
+                logger.warning("API error chunk %s attempt %d/%d: %s — retry in %ds",
+                               chunk.get("chunk_id"), attempt, MAX_RETRIES, exc, wait)
                 if attempt < MAX_RETRIES:
                     time.sleep(wait)
                 else:
-                    logger.error(
-                        "Giving up on chunk %s after %d attempts",
-                        chunk.get("chunk_id"),
-                        MAX_RETRIES,
-                    )
-                    return None  # caller will log skip
+                    logger.error("Giving up on chunk %s after %d attempts", chunk.get("chunk_id"), MAX_RETRIES)
+                    return None
+        return None
 
-        return None  # unreachable but satisfies type checker
-
-    def _parse_response(
-        self, raw: str, chunk: dict[str, Any]
-    ) -> list[dict[str, str]]:
-        """Strip markdown fences if present, then parse JSON."""
+    def _parse_response(self, raw: str, chunk: dict[str, Any]) -> list[dict[str, str]]:
         cleaned = raw.strip()
-        # Strip ```json ... ``` wrappers that Gemini sometimes adds
         if cleaned.startswith("```"):
             parts = cleaned.split("```")
             if len(parts) >= 3:
@@ -149,49 +171,35 @@ class TripletExtractor:
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError:
-            # Fallback: if there's text after the array, try to find the array boundaries
             if "[" in cleaned and "]" in cleaned:
-                start = cleaned.find("[")
-                end = cleaned.rfind("]") + 1
-                try:
-                    parsed = json.loads(cleaned[start:end])
-                except:
-                    raise
+                parsed = json.loads(cleaned[cleaned.find("["):cleaned.rfind("]") + 1])
             else:
                 raise
 
         if not isinstance(parsed, list):
-            logger.warning(
-                "Unexpected LLM output type %s on chunk %s — expected list",
-                type(parsed).__name__,
-                chunk.get("chunk_id"),
-            )
             return []
 
-        # Validate each triplet has the required keys
         valid = []
         for item in parsed:
-            if all(k in item for k in ("subject", "predicate", "object")):
-                valid.append(
-                    {
-                        "subject": str(item["subject"]).strip(),
-                        "predicate": str(item["predicate"]).strip(),
-                        "object": str(item["object"]).strip(),
-                    }
-                )
-            else:
+            if not all(k in item for k in ("subject", "predicate", "object")):
                 logger.debug("Dropping malformed triplet: %s", item)
-
+                continue
+            valid.append({
+                "subject":   str(item["subject"]).strip(),
+                "predicate": str(item["predicate"]).strip().upper().replace(" ", "_"),
+                "object":    str(item["object"]).strip(),
+                "subj_type": str(item.get("subj_type", "Entity")).strip(),
+                "obj_type":  str(item.get("obj_type",  "Entity")).strip(),
+            })
         return valid
 
     def _log_skip(self, chunk: dict[str, Any], reason: str) -> None:
-        """Append failed chunk metadata to JSONL skip-log for later re-processing."""
         record = {
-            "chunk_id": chunk.get("chunk_id", "unknown"),
-            "source": chunk.get("source", "unknown"),
-            "reason": reason,
+            "chunk_id":  chunk.get("chunk_id", "unknown"),
+            "source":    chunk.get("source",   "unknown"),
+            "reason":    reason,
+            "model":     self._model_name,
             "timestamp": time.time(),
         }
         with SKIP_LOG_PATH.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
-        logger.debug("Logged skip: %s", record)

@@ -117,7 +117,7 @@ async def get_metrics():
     return {
         "status": "online",
         "uptime": "active",
-        "engine": "Gemini 1.5 Pro",
+        "engine": f"Gemini ({LLM_MODEL})",
         "pipeline": "Hybrid-RAG"
     }
 
@@ -217,8 +217,14 @@ async def get_strategy_advice(request: StrategyAdvisorRequest):
     try:
         from finance.strategies.advisor import StrategyAdvisor
         advisor = StrategyAdvisor()
-        result = await advisor.get_strategy_approach(request.intent)
-        return result
+        result  = await advisor.get_strategy_approach(request.intent)
+        return {
+            "approach_report":    result.get("approach_report", ""),
+            "structured":         result.get("structured", {}),
+            "retrieved_context":  result.get("retrieved_context", ""),
+            "latency":            result.get("latency", 0.0),
+            "model_used":         result.get("model_used", LLM_MODEL),
+        }
     except Exception as e:
         import traceback
         print(f"[!] Strategy Advisor API Error: {e}\n{traceback.format_exc()}")
@@ -230,8 +236,16 @@ async def get_market_strategy_advice(request: MarketAdvisorRequest):
     try:
         from finance.strategies.market_strategist import MarketStrategyAdvisor
         advisor = MarketStrategyAdvisor()
-        result = await advisor.analyze_and_build(request.symbol)
-        return result
+        result  = await advisor.analyze_and_build(request.symbol)
+        return {
+            "symbol":            result.get("symbol", request.symbol),
+            "market_summary":    result.get("market_summary", {}),
+            "dynamic_report":    result.get("dynamic_report", ""),
+            "structured":        result.get("structured", {}),
+            "retrieved_context": result.get("retrieved_context", ""),
+            "model_used":        result.get("model_used", LLM_MODEL),
+            "error":             result.get("error", ""),
+        }
     except Exception as e:
         import traceback
         print(f"[!] Market Advisor API Error: {e}\n{traceback.format_exc()}")
