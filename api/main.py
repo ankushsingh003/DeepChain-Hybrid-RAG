@@ -112,6 +112,50 @@ class MarketAdvisorRequest(BaseModel):
 
 # --- Routes ---
 
+@app.get("/health")
+async def health_check():
+    """Check status of all dependent services (Weaviate, Neo4j)."""
+    import socket
+
+    def tcp_check(host, port, timeout=2):
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
+    weaviate_host = os.getenv("WEAVIATE_HOST", "localhost")
+    weaviate_port = int(os.getenv("WEAVIATE_PORT", 8080))
+    neo4j_host    = os.getenv("NEO4J_HOST", "localhost")
+    neo4j_port    = int(os.getenv("NEO4J_BOLT_PORT", 7687))
+
+    weaviate_up = tcp_check(weaviate_host, weaviate_port)
+    neo4j_up    = tcp_check(neo4j_host, neo4j_port)
+
+    all_up = weaviate_up and neo4j_up
+    return {
+        "status":   "healthy" if all_up else "degraded",
+        "services": {
+            "weaviate": {
+                "running": weaviate_up,
+                "address": f"{weaviate_host}:{weaviate_port}",
+                "fix":     None if weaviate_up else (
+                    "docker run -d -p 8080:8080 -p 50051:50051 "
+                    "cr.weaviate.io/semitechnologies/weaviate:latest"
+                ),
+            },
+            "neo4j": {
+                "running": neo4j_up,
+                "address": f"{neo4j_host}:{neo4j_port}",
+                "fix":     None if neo4j_up else (
+                    "docker run -d -p 7474:7474 -p 7687:7687 "
+                    "-e NEO4J_AUTH=neo4j/password neo4j:latest"
+                ),
+            },
+        },
+    }
+
+
 @app.get("/metrics")
 async def get_metrics():
     return {
@@ -121,8 +165,8 @@ async def get_metrics():
         "pipeline": "Hybrid-RAG"
     }
 
-@app.get("/health")
-def health_check():
+@app.get("/health_v2")
+def health_check_v2():
     retriever = get_retriever()
     if not retriever:
         return {"status": "degraded", "services": {"database": "offline"}}
@@ -133,10 +177,34 @@ def health_check():
 def start_ingestion():
     """Triggers the document ingestion pipeline."""
     try:
+        # Pre-flight check: is Weaviate reachable before we even try to connect?
+        from vector_store.weaviate_client import WeaviateClient, WeaviateNotAvailableError
+        if not WeaviateClient.is_available():
+            raise WeaviateNotAvailableError(
+                "Weaviate is not running. "
+                "Start it with: docker run -d -p 8080:8080 -p 50051:50051 "
+                "cr.weaviate.io/semitechnologies/weaviate:latest"
+            )
+
         from ingestion.pipeline import IngestionPipeline
         pipeline = IngestionPipeline()
         pipeline.run()
         return {"status": "success", "message": "Ingestion completed."}
+
+    except WeaviateNotAvailableError as e:
+        print(f"[!] Weaviate not available: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "Weaviate vector database is not running.",
+                "message": str(e),
+                "fix": (
+                    "Run this command to start Weaviate with Docker: "
+                    "docker run -d -p 8080:8080 -p 50051:50051 "
+                    "cr.weaviate.io/semitechnologies/weaviate:latest"
+                ),
+            },
+        )
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
