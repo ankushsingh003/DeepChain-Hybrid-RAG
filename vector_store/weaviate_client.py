@@ -110,7 +110,7 @@ class WeaviateClient:
         Call this BEFORE constructing WeaviateClient to give a clean error.
         """
         import socket
-        host = os.getenv("WEAVIATE_HOST", "localhost")
+        host = os.getenv("WEAVIATE_HOST", "127.0.0.1")
         port = int(os.getenv("WEAVIATE_PORT", 8080))
         try:
             with socket.create_connection((host, port), timeout=3):
@@ -123,7 +123,7 @@ class WeaviateClient:
         Raises WeaviateNotAvailableError with a clear message on failure."""
         weaviate_url = os.getenv("WEAVIATE_URL", "")
         api_key      = os.getenv("WEAVIATE_API_KEY", "")
-        host         = os.getenv("WEAVIATE_HOST", "localhost")
+        host         = os.getenv("WEAVIATE_HOST", "127.0.0.1")
         port         = int(os.getenv("WEAVIATE_PORT", 8080))
 
         for attempt in range(1, attempts + 1):
@@ -141,6 +141,7 @@ class WeaviateClient:
                         host=host,
                         port=port,
                         grpc_port=grpc_port,
+                        additional_config=weaviate.config.AdditionalConfig(timeout=(20, 60)) # (connect, read) timeouts
                     )
 
                 logger.info("[WeaviateClient] Connected successfully.")

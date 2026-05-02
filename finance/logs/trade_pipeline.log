@@ -121,3 +121,10 @@
 2026-05-02 01:53:01,543 - datasets - INFO - TensorFlow version 2.20.0 available.
 2026-05-02 01:53:18,515 - tensorflow - WARNING - From D:\anaconda\Lib\site-packages\tf_keras\src\losses.py:2976: The name tf.losses.sparse_softmax_cross_entropy is deprecated. Please use tf.compat.v1.losses.sparse_softmax_cross_entropy instead.
 
+2026-05-02 16:30:49,347 - finance.trade_testing.ml_evaluator - WARNING - No model found at models/strategy_scorer.joblib. Using heuristic scoring.
+2026-05-02 16:30:49,352 - finance.trade_testing.trade_pipeline - INFO - --- Starting Trade Test: RELIANCE.NS | RSI_Standard ---
+2026-05-02 16:30:49,353 - finance.trade_testing.trade_pipeline - INFO - Step 1: Fetching 2y historical data for RELIANCE.NS...
+2026-05-02 16:30:50,021 - finance.trade_testing.trade_pipeline - INFO - Step 2: Running backtest...
+2026-05-02 16:30:50,022 - finance.trade_testing.backtester - INFO - Starting backtest with initial capital: 100000.0
+2026-05-02 16:30:50,067 - finance.trade_testing.trade_pipeline - INFO - Step 3: Running ML evaluation...
+2026-05-02 16:30:50,068 - finance.trade_testing.trade_pipeline - INFO - --- Trade Test Complete ---

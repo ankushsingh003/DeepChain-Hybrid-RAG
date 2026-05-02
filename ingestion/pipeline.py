@@ -149,17 +149,17 @@ from ingestion.extractor import KnowledgeGraph, Entity, Relationship
 
 
 # ── Tunable batch sizes ────────────────────────────────────────────────────────
-CHUNK_BATCH_SIZE   = 30    # chunks per loop (reduced for free-tier quota)
-EMBED_BATCH_SIZE   = 50    # chunks per Gemini embedding call
-TRIPLET_BATCH_SIZE = 10    # chunks per LLM extraction batch (free-tier safe)
-INTER_BATCH_DELAY  = 5.0   # seconds between extraction batches
+CHUNK_BATCH_SIZE   = 20    # reduced for stability
+EMBED_BATCH_SIZE   = 30    # safe sub-batch for embeddings
+TRIPLET_BATCH_SIZE = 4     # very small batches for heavy LLM extraction
+INTER_BATCH_DELAY  = 8.0   # increased delay to prevent RPM exhaustion
 CHECKPOINT_FILE    = "ingestion_checkpoint.json"
 # ──────────────────────────────────────────────────────────────────────────────
 
 
 class IngestionPipeline:
     def __init__(self, data_path: str = "data/sample_docs"):
-        self.loader          = DocumentLoader(data_path)
+        self.loader          = DocumentLoader(data_path, use_ocr=True)
         self.chunker         = DocumentChunker(chunk_size=1000, chunk_overlap=200)
         self.extractor       = GraphExtractor(rate_limit_delay=4.0, retry_base_delay=10.0)
         self.neo4j_client    = Neo4jClient()

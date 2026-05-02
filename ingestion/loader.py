@@ -149,14 +149,18 @@ class DocumentLoader:
         """
         pdf_files = list(self.data_path.rglob("*.pdf"))
         txt_files = list(self.data_path.rglob("*.txt"))
+        md_files  = list(self.data_path.rglob("*.md"))
 
-        print(f"[*] Found {len(pdf_files)} PDF(s) and {len(txt_files)} TXT(s) in {self.data_path}")
+        print(f"[*] Found {len(pdf_files)} PDF(s), {len(txt_files)} TXT(s), and {len(md_files)} MD(s) in {self.data_path}")
 
         for pdf_path in pdf_files:
             yield from self._load_pdf_lazy(pdf_path)
 
         for txt_path in txt_files:
             yield from self._load_txt(txt_path)
+
+        for md_path in md_files:
+            yield from self._load_txt(md_path)
 
     def load_documents(self) -> List[Document]:
         """

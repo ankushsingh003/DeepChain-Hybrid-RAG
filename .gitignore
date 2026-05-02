@@ -23,6 +23,9 @@ Thumbs.db
 scratch/
 test*
 **/test*
+data/test_ingest/
+models/*.joblib
+models/*.json
 *.log
 finance/logs/
 api_output.log
