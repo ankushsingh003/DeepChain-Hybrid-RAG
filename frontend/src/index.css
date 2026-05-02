@@ -4,56 +4,138 @@
 
 @layer base {
   body {
-    @apply bg-bg text-text antialiased min-h-screen overflow-x-hidden selection:bg-finance selection:text-bg;
+    @apply antialiased min-h-screen overflow-x-hidden;
     font-family: 'DM Sans', system-ui, sans-serif;
+    background: #080810;
+    color: #f0ede8;
+    selection-color: #E8D17A;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  /* GRID BG */
+  /* Subtle dot-grid background */
   body::before {
     content: '';
     position: fixed;
     inset: 0;
-    background-image:
-      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
-    background-size: 48px 48px;
+    background-image: radial-gradient(rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 28px 28px;
     pointer-events: none;
     z-index: 0;
   }
+
+  /* Ambient top glow */
+  body::after {
+    content: '';
+    position: fixed;
+    top: -200px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 900px;
+    height: 400px;
+    background: radial-gradient(ellipse at center, rgba(232,209,122,0.04) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  * { box-sizing: border-box; }
 }
 
 @layer components {
   .hero-badge {
-    @apply inline-flex items-center gap-1.5 text-[11px] font-mono tracking-[0.08em] uppercase text-finance border border-finance/25 rounded-full px-4 py-1.5 mb-10 bg-finance/5;
+    @apply inline-flex items-center gap-1.5 text-[11px] font-mono tracking-[0.08em] uppercase border rounded-full px-4 py-1.5 mb-10;
+    color: #E8D17A;
+    border-color: rgba(232,209,122,0.2);
+    background: rgba(232,209,122,0.05);
   }
 
   .nav-pill {
-    @apply text-[12px] text-muted px-3 py-1 border border-border rounded-full cursor-pointer transition-all hover:text-text hover:border-border2 bg-transparent font-sans;
+    @apply text-[12px] px-3 py-1 border rounded-full cursor-pointer transition-all bg-transparent font-mono;
+    color: rgba(240,237,232,0.45);
+    border-color: rgba(255,255,255,0.08);
+  }
+  .nav-pill:hover {
+    color: rgba(240,237,232,0.8);
+    border-color: rgba(255,255,255,0.14);
   }
 
   .domain-card {
-    @apply border border-border rounded-2xl p-9 cursor-pointer transition-all duration-300 relative overflow-hidden bg-bg2 hover:-translate-y-1 hover:border-border2;
+    @apply border rounded-2xl p-9 cursor-pointer transition-all duration-300 relative overflow-hidden;
+    background: #11111a;
+    border-color: rgba(255,255,255,0.07);
+  }
+  .domain-card:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255,255,255,0.12);
   }
 
   .glass-card {
-    @apply backdrop-blur-xl bg-bg/85 border border-border;
+    backdrop-filter: blur(16px);
+    background: rgba(8,8,16,0.85);
+    border: 1px solid rgba(255,255,255,0.07);
   }
 }
 
-/* Custom animations and scrollbars */
-::-webkit-scrollbar {
-  width: 4px;
+/* ── Scrollbar ────────────────────────────────── */
+::-webkit-scrollbar        { width: 3px; height: 3px; }
+::-webkit-scrollbar-track  { background: transparent; }
+::-webkit-scrollbar-thumb  { background: rgba(255,255,255,0.08); border-radius: 10px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+
+/* ── Global nav bar ──────────────────────────── */
+.deepchain-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 65px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2rem;
+  background: rgba(8,8,16,0.92);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  backdrop-filter: blur(16px);
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+.deepchain-nav-logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+.deepchain-nav-logo-mark {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(232,209,122,0.1);
+  border: 1px solid rgba(232,209,122,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+.deepchain-nav-wordmark {
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: rgba(240,237,232,0.85);
+  font-family: 'DM Sans', sans-serif;
+}
+
+.deepchain-nav-wordmark span {
+  color: #E8D17A;
+}
+
+/* ── Utility ─────────────────────────────────── */
+.custom-scrollbar::-webkit-scrollbar       { width: 3px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.07); border-radius: 4px; }
+
+/* select styling */
+select option {
+  background: #0b0b16;
+  color: rgba(240,237,232,0.7);
 }
