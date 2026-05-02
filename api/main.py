@@ -6,7 +6,9 @@ from dotenv import load_dotenv
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-load_dotenv()
+# Force load .env from project root
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+load_dotenv(dotenv_path)
 
 import os
 from fastapi import FastAPI, HTTPException
@@ -50,7 +52,7 @@ def get_retriever():
             emb = GeminiEmbedder()
             v_retriever = VectorRetriever(w_client, emb)
             n_client = Neo4jClient(
-                uri=os.getenv("NEO4J_URI", "bolt://localhost:7687"),
+                uri=os.getenv("NEO4J_URI", "bolt://127.0.0.1:7687"),
                 user=os.getenv("NEO4J_USERNAME", "neo4j"),
                 password=os.getenv("NEO4J_PASSWORD", "password123")
             )
@@ -112,11 +114,42 @@ class MarketAdvisorRequest(BaseModel):
 
 # --- Routes ---
 
+@app.get("/system-health")
+async def system_health_diagnostic():
+    """Diagnostic endpoint to verify environmental variable resolution."""
+    import socket
+    import urllib.request
+    weaviate_port = int(os.getenv("WEAVIATE_PORT", 8080))
+    weaviate_host = os.getenv("WEAVIATE_HOST", "127.0.0.1")
+    return {
+        "debug_weaviate_port": weaviate_port,
+        "debug_weaviate_host": weaviate_host,
+        "env_raw": os.getenv("WEAVIATE_PORT")
+    }
+
 @app.get("/health")
 async def health_check():
     """Check status of all dependent services (Weaviate, Neo4j)."""
     import socket
+    import urllib.request
 
+    weaviate_host = os.getenv("WEAVIATE_HOST", "127.0.0.1")
+    weaviate_port = int(os.getenv("WEAVIATE_PORT", 8080))
+    print(f"DEBUG: health_check using weaviate_port={weaviate_port} (Raw env: {os.getenv('WEAVIATE_PORT')})")
+    neo4j_host    = os.getenv("NEO4J_HOST", "127.0.0.1")
+    neo4j_port    = int(os.getenv("NEO4J_BOLT_PORT", 7687))
+
+    # Weaviate: HTTP check against /v1/meta (TCP alone is not enough)
+    def weaviate_http_check():
+        try:
+            url = f"http://{weaviate_host}:{weaviate_port}/v1/meta"
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=3) as r:
+                return r.status == 200
+        except Exception:
+            return False
+
+    # Neo4j: TCP check on bolt port is sufficient
     def tcp_check(host, port, timeout=2):
         try:
             with socket.create_connection((host, port), timeout=timeout):
@@ -124,12 +157,7 @@ async def health_check():
         except OSError:
             return False
 
-    weaviate_host = os.getenv("WEAVIATE_HOST", "localhost")
-    weaviate_port = int(os.getenv("WEAVIATE_PORT", 8080))
-    neo4j_host    = os.getenv("NEO4J_HOST", "localhost")
-    neo4j_port    = int(os.getenv("NEO4J_BOLT_PORT", 7687))
-
-    weaviate_up = tcp_check(weaviate_host, weaviate_port)
+    weaviate_up = weaviate_http_check()
     neo4j_up    = tcp_check(neo4j_host, neo4j_port)
 
     all_up = weaviate_up and neo4j_up
@@ -140,7 +168,7 @@ async def health_check():
                 "running": weaviate_up,
                 "address": f"{weaviate_host}:{weaviate_port}",
                 "fix":     None if weaviate_up else (
-                    "docker run -d -p 8080:8080 -p 50051:50051 "
+                    "docker run -d -p 8081:8080 -p 50052:50051 "
                     "cr.weaviate.io/semitechnologies/weaviate:latest"
                 ),
             },
@@ -164,14 +192,6 @@ async def get_metrics():
         "engine": f"Gemini ({LLM_MODEL})",
         "pipeline": "Hybrid-RAG"
     }
-
-@app.get("/health_v2")
-def health_check_v2():
-    retriever = get_retriever()
-    if not retriever:
-        return {"status": "degraded", "services": {"database": "offline"}}
-    status = retriever.health_check()
-    return {"status": "online", "services": status}
 
 @app.post("/ingest")
 def start_ingestion():

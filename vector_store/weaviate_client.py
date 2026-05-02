@@ -106,16 +106,19 @@ class WeaviateClient:
     @staticmethod
     def is_available() -> bool:
         """
-        Quick TCP health-check — returns True if Weaviate is reachable.
-        Call this BEFORE constructing WeaviateClient to give a clean error.
+        HTTP health-check against Weaviate's /v1/meta endpoint.
+        Returns True ONLY if a real Weaviate instance responds with HTTP 200.
+        A raw TCP check is NOT sufficient — another service may occupy the port.
         """
-        import socket
+        import urllib.request, urllib.error
         host = os.getenv("WEAVIATE_HOST", "127.0.0.1")
         port = int(os.getenv("WEAVIATE_PORT", 8080))
+        url  = f"http://{host}:{port}/v1/meta"
         try:
-            with socket.create_connection((host, port), timeout=3):
-                return True
-        except OSError:
+            req = urllib.request.Request(url, headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                return resp.status == 200
+        except Exception:
             return False
 
     def _connect_with_retry(self, attempts: int = 3, delay: float = 2.0):
@@ -141,7 +144,7 @@ class WeaviateClient:
                         host=host,
                         port=port,
                         grpc_port=grpc_port,
-                        additional_config=weaviate.config.AdditionalConfig(timeout=(20, 60)) # (connect, read) timeouts
+                        additional_config=weaviate.config.AdditionalConfig(timeout=(20, 60))
                     )
 
                 logger.info("[WeaviateClient] Connected successfully.")

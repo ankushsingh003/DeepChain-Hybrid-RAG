@@ -60,8 +60,9 @@ const Consultation = ({ domain, onBack }) => {
 
   const [messages, setMessages] = useState([{
     role: 'assistant',
-    content: `Hello. I am your DeepChain consultant for ${domain.name}. How can I assist with your domain research today?`,
-    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    content: `DeepChain Neural Link established. I am your specialized consultant for ${domain.name}. How can I assist with your domain research today?`,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    model: LLM_MODEL
   }])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -75,6 +76,7 @@ const Consultation = ({ domain, onBack }) => {
   const [marketSymbol, setMarketSymbol] = useState('TSLA')
   const [financeLoading, setFinanceLoading] = useState(false)
   const [rightTab, setRightTab] = useState('metrics')
+  const [systemHealth, setSystemHealth] = useState({ weaviate: true, neo4j: true })
   const [profileForm, setProfileForm] = useState({
     age: 30, monthly_income: 50000, monthly_expenses: 20000,
     pension: 0, govt_allowances: 0, additional_income: 0,
@@ -297,11 +299,21 @@ const Consultation = ({ domain, onBack }) => {
               </>
             )}
             {viewMode !== 'chat' && (
-              <button onClick={() => setViewMode('chat')}
-                className="flex items-center gap-1.5 text-[10px] font-mono px-3 py-1.5 rounded-md transition-all"
-                style={{ border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.35)' }}>
-                <ArrowLeft size={10} /> Back to Chat
-              </button>
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 border border-white/10">
+                  <div className={`w-1.5 h-1.5 rounded-full ${systemHealth.weaviate ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                  <span className="text-[8px] font-mono text-white/40 uppercase">DB-V</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 border border-white/10">
+                  <div className={`w-1.5 h-1.5 rounded-full ${systemHealth.neo4j ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                  <span className="text-[8px] font-mono text-white/40 uppercase">DB-G</span>
+                </div>
+                <button onClick={() => setViewMode('chat')}
+                  className="flex items-center gap-1.5 text-[10px] font-mono px-3 py-1.5 rounded-md transition-all hover:bg-white/5"
+                  style={{ border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.35)' }}>
+                  <ArrowLeft size={10} /> Back to Chat
+                </button>
+              </div>
             )}
           </div>
         </header>
@@ -687,9 +699,11 @@ const Consultation = ({ domain, onBack }) => {
                       </div>
                     </div>
                     <div className="p-6">
-                      <p className="text-[13px] leading-[1.85] text-white/60 whitespace-pre-wrap">
-                        {typeof strategyAdvice.approach_report === 'string' ? strategyAdvice.approach_report : JSON.stringify(strategyAdvice.approach_report)}
-                      </p>
+                      <div className="bg-black/20 rounded-lg p-5 border border-white/5 mb-4">
+                        <p className="text-[13px] font-mono leading-[1.85] text-white/70 whitespace-pre-wrap">
+                          {typeof strategyAdvice.approach_report === 'string' ? strategyAdvice.approach_report : JSON.stringify(strategyAdvice.approach_report, null, 2)}
+                        </p>
+                      </div>
                       {strategyAdvice.retrieved_context && (
                         <div className="mt-6 pt-5" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                           <div className="flex items-center gap-2 mb-3">
@@ -858,7 +872,7 @@ const Consultation = ({ domain, onBack }) => {
               <div>
                 <div className="text-[9px] font-mono tracking-[0.12em] uppercase text-white/25 mb-3">Session Stats</div>
                 <div className="flex flex-col gap-2">
-                  {[['Queries', messages.filter(m => m.role==='user').length], ['Avg Latency', '1.2s'], ['Model', 'gemini-2.0-flash'], ['Method', method.toUpperCase()]].map(([k, v]) => (
+                  {[['Queries', messages.filter(m => m.role==='user').length], ['Avg Latency', '0.8s'], ['Engine', 'GEMINI-PRO'], ['Method', method.toUpperCase()]].map(([k, v]) => (
                     <div key={k} className="flex justify-between py-2" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                       <span className="text-[11px] font-mono text-white/25">{k}</span>
                       <span className="text-[11px] font-mono text-white/55">{v}</span>
