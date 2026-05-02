@@ -77,3 +77,32 @@ export const getMarketStrategyAdvice = async (symbol) => {
     throw error
   }
 }
+export const getMLAdvisory = async (symbol) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/finance/ml-stock-advisory`, { symbol })
+    return response.data
+  } catch (error) {
+    console.error('ML Advisory Error:', error)
+    throw error
+  }
+}
+
+export const triggerMLTraining = async (quick = false) => {
+  try {
+    const response = await axios.post(`${API_BASE_URL}/finance/ml-train`, { quick })
+    return response.data
+  } catch (error) {
+    console.error('ML Training Error:', error)
+    throw error
+  }
+}
+
+export const getMLModelStatus = async () => {
+  try {
+    const response = await axios.get(`${API_BASE_URL}/finance/ml-model-status`)
+    return response.data
+  } catch (error) {
+    console.error('ML Status Error:', error)
+    throw error
+  }
+}

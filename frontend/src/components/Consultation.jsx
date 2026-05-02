@@ -1,383 +1,382 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { 
-  Send, ArrowLeft, MoreHorizontal, Settings, 
-  Info, Database, Share2, Sparkles, Network,
-  BarChart2, FileText, ChevronRight, Activity,
-  RefreshCw, CheckCircle2, Circle, PieChart, TrendingUp,
-  ShieldCheck, Wallet, Briefcase, Calculator, Heart
+import {
+  Send, ArrowLeft, Database, Sparkles, Network,
+  BarChart2, FileText, Activity, RefreshCw, CheckCircle2,
+  Circle, PieChart, TrendingUp, ShieldCheck, Wallet,
+  Briefcase, Calculator, Heart, ChevronRight, ChevronDown,
+  Zap, Target, AlertTriangle, Lock, Eye, Code2,
+  AreaChart, CandlestickChart, Cpu, BrainCircuit, Microscope
 } from 'lucide-react'
-import { queryRAG, triggerIngestion, getPortfolioStrategy, runTradeTest, getStrategyAdvice, getMarketStrategyAdvice } from '../services/api'
+import { 
+  queryRAG, triggerIngestion, getPortfolioStrategy, 
+  runTradeTest, getStrategyAdvice, getMarketStrategyAdvice,
+  getMLAdvisory, triggerMLTraining, getMLModelStatus
+} from '../services/api'
 
+// ─── tiny helpers ─────────────────────────────────────────────────────────────
+const Dot = ({ active }) => (
+  <span className={`inline-block w-1.5 h-1.5 rounded-full ${active ? 'bg-emerald-400 animate-pulse' : 'bg-white/10'}`} />
+)
+
+const Tag = ({ children, color = 'finance' }) => (
+  <span className={`inline-flex items-center gap-1 text-[9px] font-mono tracking-widest uppercase px-2 py-0.5 rounded border border-${color}/30 text-${color} bg-${color}/5`}>
+    {children}
+  </span>
+)
+
+const MetricBar = ({ label, value, color }) => (
+  <div>
+    <div className="flex justify-between items-center mb-1.5">
+      <span className="text-[11px] text-white/40 font-mono">{label}</span>
+      <span className={`text-[11px] font-mono font-semibold ${color}`}>{value}%</span>
+    </div>
+    <div className="h-[3px] bg-white/5 rounded-full overflow-hidden">
+      <motion.div
+        initial={{ width: 0 }}
+        animate={{ width: `${value}%` }}
+        transition={{ duration: 1.2, ease: 'easeOut', delay: 0.2 }}
+        className={`h-full rounded-full ${color.replace('text-', 'bg-')}`}
+      />
+    </div>
+  </div>
+)
+
+const PipelineStep = ({ label, id, current }) => {
+  const done = current > id
+  const active = current === id
+  return (
+    <div className={`flex items-center gap-2.5 transition-all duration-300 ${active ? 'opacity-100' : done ? 'opacity-60' : 'opacity-25'}`}>
+      <div className={`w-4 h-4 rounded flex items-center justify-center flex-shrink-0 border ${active ? 'border-emerald-400/60 bg-emerald-400/10' : done ? 'border-white/20 bg-white/5' : 'border-white/10'}`}>
+        {active ? <RefreshCw size={8} className="text-emerald-400 animate-spin" />
+          : done ? <CheckCircle2 size={8} className="text-white/40" />
+          : <Circle size={8} className="text-white/20" />}
+      </div>
+      <span className={`text-[10px] font-mono ${active ? 'text-emerald-400' : 'text-white/40'}`}>{label}</span>
+      {active && <span className="ml-auto text-[9px] font-mono text-emerald-400/60 animate-pulse">RUNNING</span>}
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
 const Consultation = ({ domain, onBack }) => {
-  if (!domain) return null;
-  const [messages, setMessages] = useState([
-    { 
-      role: 'assistant', 
-      content: `Hello. I am your DeepChain consultant for ${domain.name}. How can I assist with your domain research today?`,
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-    }
-  ])
+  if (!domain) return null
+
+  const [messages, setMessages] = useState([{
+    role: 'assistant',
+    content: `Hello. I am your DeepChain consultant for ${domain.name}. How can I assist with your domain research today?`,
+    timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [ingesting, setIngesting] = useState(false)
-  const [method, setMethod] = useState('hybrid') // naive, graph, hybrid
-  const [pipelineStep, setPipelineStep] = useState(0) // 0: Idle, 1: Extract, 2: Retrieve, 3: Fuse, 4: Generate
+  const [method, setMethod] = useState('hybrid')
+  const [pipelineStep, setPipelineStep] = useState(0)
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('deepchain_viewmode') || 'chat')
-  
-  useEffect(() => {
-    localStorage.setItem('deepchain_viewmode', viewMode)
-  }, [viewMode])
-
-  // RESET viewMode if we switch domains and current view is finance-only
-  useEffect(() => {
-    if (domain.id !== 'finance' && (viewMode === 'strategy_advisor' || viewMode === 'portfolio' || viewMode === 'trade_test')) {
-      setViewMode('chat')
-    }
-  }, [domain.id])
-  
-  // Finance Pipeline State
   const [portfolioData, setPortfolioData] = useState(null)
   const [tradeTestData, setTradeTestData] = useState(null)
   const [strategyAdvice, setStrategyAdvice] = useState(null)
-  const [marketSymbol, setMarketSymbol] = useState('TSLA')
+  const [mlAdvisoryData, setMlAdvisoryData] = useState(null)
+  const [mlStatus, setMlStatus] = useState(null)
+  const [marketSymbol, setMarketSymbol] = useState('RELIANCE.NS')
   const [financeLoading, setFinanceLoading] = useState(false)
+  const [rightTab, setRightTab] = useState('metrics')
   const [profileForm, setProfileForm] = useState({
-    age: 30,
-    monthly_income: 50000,
-    monthly_expenses: 20000,
-    pension: 0,
-    govt_allowances: 0,
-    additional_income: 0,
-    dependents: 0,
-    existing_savings: 0,
-    emergency_fund_exists: false,
-    amount_to_invest: 10000,
-    liabilities: [],
-    life_insurance: false,
-    health_insurance: false,
-    investment_horizon: "5yr",
-    primary_goal: "Wealth Creation"
+    age: 30, monthly_income: 50000, monthly_expenses: 20000,
+    pension: 0, govt_allowances: 0, additional_income: 0,
+    dependents: 0, existing_savings: 0, emergency_fund_exists: false,
+    amount_to_invest: 10000, liabilities: [], life_insurance: false,
+    health_insurance: false, investment_horizon: '5yr', primary_goal: 'Wealth Creation'
   })
-  const [tradeForm, setTradeForm] = useState({
-    symbol: 'RELIANCE.NS',
-    strategy: 'SMA_Crossover',
-    period: '1y'
-  })
+  const [tradeForm, setTradeForm] = useState({ symbol: 'RELIANCE.NS', strategy: 'SMA_Crossover', period: '1y' })
   const scrollRef = useRef(null)
 
+  useEffect(() => { localStorage.setItem('deepchain_viewmode', viewMode) }, [viewMode])
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
+    if (domain.id !== 'finance' && ['strategy_advisor', 'portfolio', 'tradetest', 'ml_strategist'].includes(viewMode)) {
+      setViewMode('chat')
     }
+    if (domain.id === 'finance') {
+      fetchMLStatus()
+    }
+  }, [domain.id])
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
   }, [messages])
 
+  const fetchMLStatus = async () => {
+    try { setMlStatus(await getMLModelStatus()) } catch (e) { console.error(e) }
+  }
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
   const handleSend = async () => {
     if (!input.trim() || loading) return
-
     const userMsg = { role: 'user', content: input, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
     setMessages(prev => [...prev, userMsg])
+    const currentInput = input
     setInput('')
     setLoading(true)
-    
-    // Simulate pipeline steps for UI effect
     setPipelineStep(1)
-    setTimeout(() => setPipelineStep(2), 800)
-    setTimeout(() => setPipelineStep(3), 1600)
-    setTimeout(() => setPipelineStep(4), 2400)
-
+    
     try {
-      const data = await queryRAG(input, method)
+      setTimeout(() => setPipelineStep(2), 500)
+      setTimeout(() => setPipelineStep(3), 1200)
       
-      const assistantMsg = { 
+      const data = await queryRAG(currentInput, method)
+      setPipelineStep(4)
+      
+      setMessages(prev => [...prev, {
         role: 'assistant', 
-        content: data.answer,
+        content: data.answer, 
         method: data.method,
-        fallback: data.fallback_reason,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        citations: ['SEC-2024-Q3', 'Risk-Protocol-v2'], // Simulated citations
-        graph: [ // Simulated graph snippets
-          { s: 'Entity A', p: 'OWNS', o: 'Entity B' },
-          { s: 'Entity B', p: 'LOCATED_IN', o: 'Singapore' }
-        ]
-      }
-      
-      setMessages(prev => [...prev, assistantMsg])
-      setPipelineStep(0)
-    } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', content: "I'm sorry, I encountered an error connecting to the intelligence engine.", timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }])
-    } finally {
+        citations: data.citations || ['SYSTEM_GEN'],
+        graph: data.graph || []
+      }])
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', content: "Error connecting to the intelligence engine.", timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }])
+    } finally { 
       setLoading(false)
+      setTimeout(() => setPipelineStep(0), 1000)
     }
   }
 
   const handleIngestion = async () => {
     setIngesting(true)
-    try {
-      await triggerIngestion()
-      alert('Ingestion completed successfully!')
-    } catch (err) {
-      alert('Ingestion failed. Check server logs.')
-    } finally {
-      setIngesting(false)
-    }
+    try { await triggerIngestion(); alert('Ingestion completed successfully!') }
+    catch { alert('Ingestion failed.') }
+    finally { setIngesting(false) }
+  }
+
+  const handleMLTrain = async (quick = true) => {
+    setFinanceLoading(true)
+    try { 
+      await triggerMLTraining(quick)
+      alert('ML Training cycle triggered in background.')
+      fetchMLStatus()
+    } catch { alert('ML Training failed.') }
+    finally { setFinanceLoading(false) }
+  }
+
+  const handleMLAdvisoryRun = async () => {
+    if (!marketSymbol.trim()) return
+    setFinanceLoading(true)
+    try { setMlAdvisoryData(await getMLAdvisory(marketSymbol)) }
+    catch { alert('Neural advisory failed.') }
+    finally { setFinanceLoading(false) }
   }
 
   const handlePortfolioRun = async () => {
     setFinanceLoading(true)
-    try {
-      const data = await getPortfolioStrategy(profileForm)
-      setPortfolioData(data)
-    } catch (err) {
-      alert('Portfolio generation failed. Check API status.')
-    } finally {
-      setFinanceLoading(false)
-    }
+    try { setPortfolioData(await getPortfolioStrategy(profileForm)) }
+    catch { alert('Portfolio generation failed.') }
+    finally { setFinanceLoading(false) }
   }
 
   const handleTradeTestRun = async () => {
     setFinanceLoading(true)
-    try {
-      const data = await runTradeTest(tradeForm.symbol, tradeForm.strategy, tradeForm.period)
-      setTradeTestData(data)
-    } catch (err) {
-      alert('Trade test failed. Check API status.')
-    } finally {
-      setFinanceLoading(false)
-    }
+    try { setTradeTestData(await runTradeTest(tradeForm.symbol, tradeForm.strategy, tradeForm.period)) }
+    catch { alert('Trade test failed.') }
+    finally { setFinanceLoading(false) }
   }
 
   const handleStrategyAdvisorRun = async () => {
     if (!input.trim()) return
     setFinanceLoading(true)
-    try {
-      const data = await getStrategyAdvice(input)
-      setStrategyAdvice(data)
-    } catch (err) {
-      alert('Strategy generation failed. Check API status.')
-    } finally {
-      setFinanceLoading(false)
-    }
+    try { setStrategyAdvice(await getStrategyAdvice(input)) }
+    catch { alert('Strategy generation failed.') }
+    finally { setFinanceLoading(false) }
   }
 
-  const handleMarketAnalysisRun = async () => {
-    if (!marketSymbol.trim()) return
-    setFinanceLoading(true)
-    try {
-      const data = await getMarketStrategyAdvice(marketSymbol)
-      setStrategyAdvice({
-        approach_report: data.dynamic_report,
-        retrieved_context: data.retrieved_context
-      })
-    } catch (err) {
-      alert('Market analysis failed. Check API status.')
-    } finally {
-      setFinanceLoading(false)
-    }
-  }
+  // ── Sidebar nav items ─────────────────────────────────────────────────────
+  const financeTools = [
+    { id: 'chat',            label: 'Expert Consultation', icon: <Sparkles size={13} /> },
+    { id: 'ml_strategist',   label: 'Neural ML Advisor',    icon: <BrainCircuit size={13} /> },
+    { id: 'portfolio',       label: 'Portfolio Allocation', icon: <PieChart size={13} /> },
+    { id: 'tradetest',       label: 'Trade Simulator',      icon: <CandlestickChart size={13} /> },
+    { id: 'strategy_advisor',label: 'Strategy Advisor',     icon: <Target size={13} /> },
+  ]
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-[calc(100vh-65px)] overflow-hidden bg-bg">
-      {/* LEFT SIDEBAR */}
-      <aside className="w-[300px] flex-shrink-0 border-r border-border p-8 flex flex-col gap-5 bg-bg2 overflow-y-auto">
-        <button 
-          onClick={onBack}
-          className="flex items-center gap-2 text-[10px] font-mono text-muted hover:text-text transition-all uppercase tracking-widest mb-2"
-        >
-          <ArrowLeft size={14} /> Back to Hub
-        </button>
-        <div className="flex items-center gap-3 p-4 rounded-2xl border border-border bg-bg3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg text-${domain.color} bg-${domain.id}-bg border border-${domain.id}/20`}>
-            {domain.icon}
-          </div>
-          <div>
-            <div className="text-[14px] font-medium">{domain.name}</div>
-            <div className="text-[11px] text-muted font-mono tracking-tight">{domain.tag}</div>
-          </div>
-        </div>
+    <div className="flex h-[calc(100vh-65px)] overflow-hidden" style={{ background: '#080810' }}>
 
-        <div className="mt-4">
-          <h3 className="text-[10px] font-mono tracking-[0.1em] uppercase text-dim mb-3 px-1">Knowledge Sources</h3>
-          <div className="flex flex-col gap-1.5">
-            {[
-              { name: 'SEC_FILINGS.PDF', count: '1,240' },
-              { name: 'MARKET_DATA.CSV', count: '842' },
-              { name: 'CORP_STATUTES.JSON', count: '5,100' }
-            ].map((s, i) => (
-              <div key={i} className="flex items-center gap-2 text-[12px] text-muted p-2 rounded-lg border border-border bg-bg hover:bg-bg3 transition-colors">
-                <FileText size={14} className="text-dim" />
-                <span className="flex-1 font-mono text-[11px] truncate">{s.name}</span>
-                <span className="text-[10px] text-dim font-mono">{s.count}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* ══════════════════ LEFT SIDEBAR ══════════════════ */}
+      <aside className="w-[280px] flex-shrink-0 flex flex-col overflow-y-auto border-r"
+        style={{ borderColor: 'rgba(255,255,255,0.06)', background: '#0b0b16' }}>
 
-        <div className="mt-4 p-4 rounded-2xl border border-border bg-bg3">
-          <h3 className="text-[10px] font-mono text-dim uppercase tracking-[0.08em] mb-3">System Controls</h3>
-          <button 
-            onClick={handleIngestion}
-            disabled={ingesting}
-            className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-finance/10 border border-finance/20 text-finance text-[11px] font-mono hover:bg-finance/20 transition-all disabled:opacity-50"
-          >
-            {ingesting ? (
-              <>
-                <RefreshCw size={12} className="animate-spin" />
-                Ingesting...
-              </>
-            ) : (
-              <>
-                <Database size={12} />
-                Trigger Ingestion
-              </>
-            )}
+        {/* Back */}
+        <div className="px-5 pt-5 pb-4 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+          <button onClick={onBack}
+            className="flex items-center gap-2 text-[10px] font-mono text-white/30 hover:text-white/60 transition-colors uppercase tracking-[0.12em]">
+            <ArrowLeft size={12} /> Back to Hub
           </button>
         </div>
 
-        <div className="mt-4 p-4 rounded-2xl border border-border bg-bg3">
-          <h3 className="text-[10px] font-mono text-dim uppercase tracking-[0.08em] mb-3">Live Pipeline</h3>
-          <div className="flex flex-col gap-2.5">
-            {[
-              { label: 'Query Decomposition', id: 1 },
-              { label: 'Graph Retrieval', id: 2 },
-              { label: 'Vector Fusion', id: 3 },
-              { label: 'Generation', id: 4 }
-            ].map((step) => (
-              <div key={step.id} className={`flex items-center gap-2.5 text-[11px] font-mono ${pipelineStep === step.id ? 'text-health' : pipelineStep > step.id ? 'text-finance' : 'text-muted'}`}>
-                {pipelineStep === step.id ? (
-                  <RefreshCw size={10} className="animate-spin" />
-                ) : pipelineStep > step.id ? (
-                  <CheckCircle2 size={10} />
-                ) : (
-                  <Circle size={10} className="opacity-20" />
-                )}
-                {step.label}
-              </div>
-            ))}
+        {/* Domain Profile */}
+        <div className="px-5 py-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+          <div className="flex items-center gap-4">
+            <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl shadow-inner shadow-white/5"
+              style={{ background: 'rgba(232,209,122,0.06)', border: '1px solid rgba(232,209,122,0.12)' }}>
+              {domain.icon}
+            </div>
+            <div>
+              <div className="text-[14px] font-medium text-white/95 leading-tight">{domain.name}</div>
+              <div className="text-[10px] font-mono text-[#E8D17A]/60 mt-0.5 tracking-wider">{domain.tag}</div>
+            </div>
           </div>
         </div>
 
+        {/* Knowledge Sources */}
+        <div className="px-5 py-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+          <div className="text-[9px] font-mono tracking-[0.14em] uppercase text-white/20 mb-4 flex items-center gap-2">
+            <Database size={9} /> Ingested Intelligence
+          </div>
+          <div className="flex flex-col gap-2">
+            {[
+              { name: 'SEC_Q3_SUMMARY.PDF', type: 'PDF' },
+              { name: 'NSE_OHLCV_HISTORY', type: 'CSV' },
+              { name: 'CORP_STATUTES_KB', type: 'Graph' }
+            ].map((s, i) => (
+              <div key={i} className="flex items-center gap-2.5 px-3 py-2 rounded-xl transition-all"
+                style={{ background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)' }}>
+                <FileText size={11} className="text-white/20" />
+                <span className="text-[10px] font-mono text-white/40 flex-1 truncate">{s.name}</span>
+                <span className="text-[8px] font-mono text-[#E8D17A]/40">{s.type}</span>
+              </div>
+            ))}
+          </div>
+          <button onClick={handleIngestion} disabled={ingesting}
+            className="w-full mt-4 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-mono transition-all disabled:opacity-40 hover:brightness-125"
+            style={{ background: 'rgba(232,209,122,0.08)', border: '1px solid rgba(232,209,122,0.15)', color: '#E8D17A' }}>
+            {ingesting ? <RefreshCw size={10} className="animate-spin" /> : <Zap size={10} />}
+            Trigger Pipeline Ingestion
+          </button>
+        </div>
+
+        {/* Financial Toolkit */}
         {domain.id === 'finance' && (
-          <div className="mt-4 p-4 rounded-2xl border border-border bg-bg3">
-            <h3 className="text-[10px] font-mono text-dim uppercase tracking-[0.08em] mb-3">Financial Toolkit</h3>
-            <div className="flex flex-col gap-2">
-              <button 
-                onClick={() => setViewMode('chat')}
-                className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${viewMode === 'chat' ? 'bg-finance/10 text-finance border border-finance/20' : 'text-muted hover:bg-bg'}`}
-              >
-                <Sparkles size={12} />
-                Expert Consultation
-              </button>
-              <button 
-                onClick={() => setViewMode('portfolio')}
-                className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${viewMode === 'portfolio' ? 'bg-finance/10 text-finance border border-finance/20' : 'text-muted hover:bg-bg'}`}
-              >
-                <PieChart size={12} />
-                Portfolio Allocation
-              </button>
-              <button 
-                onClick={() => setViewMode('tradetest')}
-                className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${viewMode === 'tradetest' ? 'bg-finance/10 text-finance border border-finance/20' : 'text-muted hover:bg-bg'}`}
-              >
-                <TrendingUp size={12} />
-                Trade Simulator
-              </button>
-              <button 
-                onClick={() => setViewMode('strategy_advisor')}
-                className={`w-full flex items-center gap-2.5 py-2 px-3 rounded-lg text-[11px] font-mono transition-all ${viewMode === 'strategy_advisor' ? 'bg-finance/10 text-finance border border-finance/20' : 'text-muted hover:bg-bg'}`}
-              >
-                <Sparkles size={12} />
-                Strategy Advisor
-              </button>
+          <div className="px-5 py-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+            <div className="text-[9px] font-mono tracking-[0.14em] uppercase text-white/20 mb-4">Quant Command Center</div>
+            <div className="flex flex-col gap-1.5">
+              {financeTools.map(tool => (
+                <button key={tool.id} onClick={() => setViewMode(tool.id)}
+                  className="w-full flex items-center gap-3 py-3 px-4 rounded-xl text-[11px] font-mono transition-all text-left group"
+                  style={viewMode === tool.id
+                    ? { background: 'rgba(232,209,122,0.08)', border: '1px solid rgba(232,209,122,0.18)', color: '#E8D17A' }
+                    : { background: 'transparent', border: '1px solid transparent', color: 'rgba(255,255,255,0.3)' }}>
+                  <span className={viewMode === tool.id ? 'text-[#E8D17A]' : 'text-white/20 group-hover:text-white/40'}>{tool.icon}</span>
+                  {tool.label}
+                  {viewMode === tool.id && <motion.div layoutId="activeDot" className="w-1 h-1 rounded-full bg-[#E8D17A] ml-auto" />}
+                </button>
+              ))}
             </div>
           </div>
         )}
-        
-        <button onClick={onBack} className="mt-auto flex items-center justify-center gap-2 p-3 rounded-xl border border-border text-muted text-xs hover:text-text hover:border-border2 transition-all">
-          <ArrowLeft size={14} /> Back to Domains
-        </button>
+
+        {/* Real-time Pipeline Step */}
+        <div className="px-5 py-5">
+          <div className="text-[9px] font-mono tracking-[0.14em] uppercase text-white/20 mb-4">Fusion Processing</div>
+          <div className="flex flex-col gap-3">
+            {[
+              { label: 'Decomposition', id: 1 },
+              { label: 'Graph Retrieval', id: 2 },
+              { label: 'Vector Similarity', id: 3 },
+              { label: 'Synthesized Reponse', id: 4 }
+            ].map(s => <PipelineStep key={s.id} {...s} current={pipelineStep} />)}
+          </div>
+        </div>
       </aside>
 
-      {/* CENTER CHAT */}
-      <main className="flex-1 flex flex-col min-w-0">
-        <header className="px-8 py-5 border-b border-border flex items-center justify-between bg-bg/85 backdrop-blur-md">
-          <div className="flex flex-col gap-0.5">
-            <div className="text-[13px] font-medium tracking-tight">Active Consultation</div>
-            <div className="text-[11px] text-muted font-mono flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-health animate-pulse" />
-              Engine Online — Gemini 1.5 Pro
+      {/* ══════════════════ CENTER MAIN ══════════════════ */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative" style={{ background: 'radial-gradient(circle at 50% 0%, rgba(232,209,122,0.03) 0%, rgba(8,8,16,1) 100%)' }}>
+
+        {/* Header */}
+        <header className="px-8 py-5 flex items-center justify-between flex-shrink-0"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'rgba(8,8,16,0.8)', backdropFilter: 'blur(20px)' }}>
+          <div className="flex items-center gap-5">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <span className="text-[14px] font-medium text-white/90">DeepChain Terminal</span>
+                <span className="px-2 py-0.5 rounded text-[8px] font-mono bg-white/5 border border-white/10 text-white/30 tracking-tighter uppercase">v2.1 Stable</span>
+              </div>
+              <div className="flex items-center gap-1.5 mt-1">
+                <Dot active />
+                <span className="text-[10px] font-mono text-white/30">Active Intelligence Protocol — {method.toUpperCase()} Fusion</span>
+              </div>
             </div>
           </div>
-          <div className="flex gap-2">
+
+          <div className="flex items-center gap-3">
             {viewMode === 'chat' && (
-              <>
-                <button 
-                  onClick={() => setMethod('naive')} 
-                  className={`text-[10px] font-mono border rounded-md px-2.5 py-1 transition-all ${method === 'naive' ? 'text-finance border-finance/30 bg-finance/5' : 'text-muted border-border hover:border-border2'}`}
-                >
-                  Naive RAG
-                </button>
-                <button 
-                  onClick={() => setMethod('hybrid')} 
-                  className={`text-[10px] font-mono border rounded-md px-2.5 py-1 transition-all ${method === 'hybrid' ? 'text-finance border-finance/30 bg-finance/5' : 'text-muted border-border hover:border-border2'}`}
-                >
-                  Hybrid RAG
-                </button>
-              </>
+              <div className="flex bg-white/5 p-1 rounded-xl border border-white/10">
+                {['naive', 'hybrid'].map(m => (
+                  <button key={m} onClick={() => setMethod(m)}
+                    className="text-[10px] font-mono px-4 py-1.5 rounded-lg transition-all"
+                    style={method === m
+                      ? { background: 'rgba(232,209,122,0.1)', color: '#E8D17A' }
+                      : { color: 'rgba(255,255,255,0.3)' }}>
+                    {m.toUpperCase()}
+                  </button>
+                ))}
+              </div>
             )}
             {viewMode !== 'chat' && (
-              <button 
-                onClick={() => setViewMode('chat')}
-                className="text-[10px] font-mono border border-border rounded-md px-2.5 py-1 text-muted hover:text-text transition-all flex items-center gap-1.5"
-              >
-                <ArrowLeft size={10} /> Back to Chat
+              <button onClick={() => setViewMode('chat')}
+                className="flex items-center gap-2 text-[10px] font-mono px-4 py-2 rounded-xl border border-white/10 text-white/40 hover:bg-white/5 transition-all">
+                <ArrowLeft size={12} /> Return to Terminal
               </button>
             )}
           </div>
         </header>
 
+        {/* Content Area */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-8 flex flex-col gap-6 custom-scrollbar">
+
+          {/* ── 💬 CHAT VIEW ─────────────────────────────── */}
           {viewMode === 'chat' && (
             <>
               {messages.map((msg, i) => (
-                <motion.div 
-                  key={i}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`max-w-[640px] ${msg.role === 'user' ? 'self-end' : 'self-start'}`}
-                >
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className={`w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-mono border ${msg.role === 'assistant' ? 'bg-bg3 border-border text-muted' : 'bg-white/10 border-border text-text'}`}>
-                      {msg.role === 'assistant' ? 'AI' : 'U'}
-                    </div>
-                    <span className="text-[11px] text-dim font-mono">{msg.role === 'assistant' ? 'DeepChain' : 'You'} — {msg.timestamp}</span>
-                  </div>
+                <motion.div key={i} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+                  className={`flex flex-col gap-3 max-w-[700px] ${msg.role === 'user' ? 'self-end items-end' : 'self-start items-start'}`}>
                   
-                  <div className={`${msg.role === 'user' ? 'bg-bg3 border border-border rounded-2xl rounded-tr-sm p-4' : ''}`}>
-                    <p className="text-[14px] leading-[1.7] text-text whitespace-pre-wrap">{msg.content}</p>
-                    
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-mono flex-shrink-0 ${msg.role === 'assistant' ? 'text-white/20' : 'text-white/40'}`}
+                      style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                      {msg.role === 'assistant' ? <Sparkles size={11} /> : 'U'}
+                    </div>
+                    <span className="text-[10px] font-mono text-white/20 tracking-wider">
+                      {msg.role === 'assistant' ? 'INTELLIGENCE_ENGINE' : 'USER_CLIENT'} · {msg.timestamp}
+                    </span>
+                    {msg.method && <Tag color={msg.method === 'hybrid' ? 'emerald-400' : 'white/20'}>{msg.method}</Tag>}
+                  </div>
+
+                  <div className={`text-[14px] leading-[1.8] ${msg.role === 'user' ? 'px-5 py-4 rounded-2xl rounded-tr-sm text-white/90 shadow-2xl' : 'text-white/70'}`}
+                    style={msg.role === 'user' ? { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' } : {}}>
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
+
                     {msg.role === 'assistant' && msg.citations && (
-                      <div className="flex flex-wrap gap-1.5 mt-4">
+                      <div className="flex flex-wrap gap-2 mt-5 pt-4" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                         {msg.citations.map((c, j) => (
-                          <span key={j} className="inline-flex items-center gap-1.5 text-[10px] font-mono text-muted border border-border rounded-full px-2.5 py-1 bg-bg2">
-                            <FileText size={10} /> {c}
-                          </span>
+                          <div key={j} className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[9px] font-mono text-white/30 border border-white/5 bg-white/[0.01]">
+                            <FileText size={9} /> {c}
+                          </div>
                         ))}
                       </div>
                     )}
 
-                    {msg.role === 'assistant' && msg.graph && (
-                      <div className="mt-4 border border-border rounded-xl overflow-hidden bg-bg3">
-                        <div className="px-4 py-2 border-b border-border text-[10px] font-mono text-dim flex items-center justify-between">
-                          <span>Graph Extraction</span>
-                          <Share2 size={10} />
+                    {msg.role === 'assistant' && msg.graph && msg.graph.length > 0 && (
+                      <div className="mt-5 rounded-2xl overflow-hidden border border-white/5 bg-white/[0.01]">
+                        <div className="px-4 py-2 flex items-center gap-2 text-[9px] font-mono text-white/20 border-b border-white/5">
+                          <Network size={10} /> Neural Relational Map
                         </div>
                         <div className="p-4 flex flex-col gap-2">
-                          {msg.graph.map((triplet, j) => (
-                            <div key={j} className="flex items-center gap-2 text-[10px] font-mono">
-                              <span className="px-2 py-1 rounded border border-finance/30 text-finance bg-finance/5">{triplet.s}</span>
-                              <span className="text-dim">→ {triplet.p} →</span>
-                              <span className="px-2 py-1 rounded border border-legal/30 text-legal bg-legal/5">{triplet.o}</span>
+                          {msg.graph.map((t, j) => (
+                            <div key={j} className="flex items-center gap-3 text-[11px] font-mono">
+                              <span className="px-3 py-1 rounded-lg text-[#E8D17A] bg-[#E8D17A]/5 border border-[#E8D17A]/10">{t.s}</span>
+                              <span className="text-white/10 tracking-widest">─ {t.p} ─▶</span>
+                              <span className="px-3 py-1 rounded-lg text-emerald-400 bg-emerald-400/5 border border-emerald-400/10">{t.o}</span>
                             </div>
                           ))}
                         </div>
@@ -386,430 +385,344 @@ const Consultation = ({ domain, onBack }) => {
                   </div>
                 </motion.div>
               ))}
+
               {loading && (
-                <div className="self-start max-w-[640px]">
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className="w-6 h-6 rounded-md bg-bg3 border border-border flex items-center justify-center animate-pulse">
-                      <Activity size={12} className="text-muted" />
-                    </div>
-                    <span className="text-[11px] text-dim font-mono">Consultant is thinking...</span>
+                <div className="self-start flex items-center gap-4 py-4">
+                  <div className="flex gap-1.5">
+                    {[0,1,2].map(i => (
+                      <motion.div key={i} className="w-1.5 h-1.5 rounded-full bg-[#E8D17A]/40"
+                        animate={{ opacity: [0.3, 1, 0.3], scale: [0.8, 1.2, 0.8] }}
+                        transition={{ duration: 1.5, repeat: Infinity, delay: i * 0.3 }} />
+                    ))}
                   </div>
+                  <span className="text-[10px] font-mono text-white/20 uppercase tracking-widest">Synthesizing Domain Response...</span>
                 </div>
               )}
             </>
           )}
 
-          {viewMode === 'portfolio' && domain.id === 'finance' && (
-            <div className="max-w-[800px] mx-auto w-full pb-20">
-              <div className="mb-8 border-b border-border pb-6">
-                <h2 className="text-2xl font-serif mb-2">Portfolio Allocation Strategy</h2>
-                <p className="text-sm text-muted">Configure your profile to generate a risk-aware investment strategy.</p>
+          {/* ── 🤖 NEURAL ML ADVISOR ──────────────────────────── */}
+          {viewMode === 'ml_strategist' && domain.id === 'finance' && (
+            <div className="max-w-[900px] mx-auto w-full pb-10">
+              <div className="mb-10">
+                <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-[#E8D17A]/40 mb-3 flex items-center gap-2">
+                  <BrainCircuit size={12} /> Neural Stock Engine
+                </div>
+                <h2 className="text-[28px] font-serif text-white/95 tracking-tight">Neural Strategy Advisor</h2>
+                <p className="text-[14px] text-white/30 mt-2 max-w-xl leading-relaxed">
+                  Predictive ML engine that scans fundamentals and technicals to determine the optimal mathematical strategy.
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
-                <div className="flex flex-col gap-5">
-                  <div>
-                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Personal Info</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 rounded-xl border border-border bg-bg2">
-                        <div className="text-[10px] text-muted mb-1">Age</div>
-                        <input 
-                          type="number" 
-                          value={profileForm.age}
-                          onChange={(e) => setProfileForm({...profileForm, age: parseInt(e.target.value)})}
-                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
-                        />
+              <div className="grid grid-cols-12 gap-6">
+                <div className="col-span-12 p-6 rounded-3xl border border-white/5 bg-white/[0.02]">
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-2xl flex items-center justify-center bg-[#E8D17A]/10 border border-[#E8D17A]/20">
+                        <Microscope size={18} className="text-[#E8D17A]" />
                       </div>
-                      <div className="p-3 rounded-xl border border-border bg-bg2">
-                        <div className="text-[10px] text-muted mb-1">Dependents</div>
-                        <input 
-                          type="number" 
-                          value={profileForm.dependents}
-                          onChange={(e) => setProfileForm({...profileForm, dependents: parseInt(e.target.value)})}
-                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
-                        />
+                      <div>
+                        <div className="text-[13px] font-medium text-white/90">DeepScan Analysis</div>
+                        <div className="text-[10px] font-mono text-white/20 uppercase tracking-tighter">Enter NSE Ticker Symbol</div>
                       </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input type="text" value={marketSymbol} onChange={e => setMarketSymbol(e.target.value.toUpperCase())}
+                        className="w-40 px-5 py-3 rounded-2xl bg-white/5 border border-white/10 text-white/80 font-mono text-[14px] focus:outline-none focus:border-[#E8D17A]/30 transition-all text-center"
+                        placeholder="e.g. RELIANCE.NS" />
+                      <button onClick={handleMLAdvisoryRun} disabled={financeLoading}
+                        className="px-6 py-3 rounded-2xl bg-[#E8D17A] text-[#08080f] font-mono font-bold text-[12px] hover:brightness-110 active:scale-95 transition-all disabled:opacity-30">
+                        {financeLoading ? <RefreshCw size={14} className="animate-spin" /> : "RUN ANALYSIS"}
+                      </button>
                     </div>
                   </div>
 
-                  <div>
-                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Monthly Cashflow</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 rounded-xl border border-border bg-bg2">
-                        <div className="text-[10px] text-muted mb-1">Primary Income (₹)</div>
-                        <input 
-                          type="number" 
-                          value={profileForm.monthly_income}
-                          onChange={(e) => setProfileForm({...profileForm, monthly_income: parseFloat(e.target.value)})}
-                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
-                        />
+                  {mlAdvisoryData && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="grid grid-cols-2 gap-6">
+                      <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5">
+                        <div className="flex items-center justify-between mb-4">
+                          <span className="text-[10px] font-mono text-white/25 uppercase tracking-widest">ML Prediction</span>
+                          <span className="px-3 py-1 rounded-full text-[10px] font-mono bg-emerald-400/10 text-emerald-400 border border-emerald-400/20">CONFIDENT</span>
+                        </div>
+                        <div className="text-[20px] font-medium text-[#E8D17A] mb-1">{mlAdvisoryData.recommended_strategy}</div>
+                        <div className="text-[11px] text-white/30">Target Sharpe Ratio: <span className="text-white/60 font-mono">{(mlAdvisoryData.expected_sharpe || 0).toFixed(2)}</span></div>
+                        
+                        <div className="mt-6 flex flex-col gap-3">
+                          <div className="flex justify-between items-center py-2 border-b border-white/5">
+                            <span className="text-[12px] text-white/40">Backtest Return</span>
+                            <span className="text-[14px] font-mono text-emerald-400">+{mlAdvisoryData.backtest_return?.toFixed(2)}%</span>
+                          </div>
+                          <div className="flex justify-between items-center py-2 border-b border-white/5">
+                            <span className="text-[12px] text-white/40">Market Trend</span>
+                            <span className="text-[12px] font-mono text-white/70">{mlAdvisoryData.market_trend}</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="p-3 rounded-xl border border-border bg-bg2">
-                        <div className="text-[10px] text-muted mb-1">Expenses (₹)</div>
-                        <input 
-                          type="number" 
-                          value={profileForm.monthly_expenses}
-                          onChange={(e) => setProfileForm({...profileForm, monthly_expenses: parseFloat(e.target.value)})}
-                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
-                        />
+                      
+                      <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5">
+                        <div className="text-[10px] font-mono text-white/25 uppercase tracking-widest mb-4">Neural Logic</div>
+                        <p className="text-[13px] text-white/60 leading-relaxed italic">
+                          "{mlAdvisoryData.logic_explanation || "Analyzing market microstructure and volatility regimes to deliver optimal entry signals."}"
+                        </p>
                       </div>
-                      <div className="p-3 rounded-xl border border-border bg-bg2">
-                        <div className="text-[10px] text-muted mb-1">Pension (₹)</div>
-                        <input 
-                          type="number" 
-                          value={profileForm.pension}
-                          onChange={(e) => setProfileForm({...profileForm, pension: parseFloat(e.target.value)})}
-                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
-                        />
-                      </div>
-                      <div className="p-3 rounded-xl border border-border bg-bg2">
-                        <div className="text-[10px] text-muted mb-1">Other Income (₹)</div>
-                        <input 
-                          type="number" 
-                          value={profileForm.additional_income}
-                          onChange={(e) => setProfileForm({...profileForm, additional_income: parseFloat(e.target.value)})}
-                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
-                        />
-                      </div>
+                    </motion.div>
+                  )}
+                </div>
+
+                <div className="col-span-12 p-6 rounded-3xl border border-white/5 bg-white/[0.02]">
+                  <div className="flex items-center justify-between mb-6">
+                    <div>
+                      <div className="text-[13px] font-medium text-white/90">Brain Status</div>
+                      <div className="text-[10px] font-mono text-white/20 uppercase tracking-tighter">Model Last Trained: {mlStatus?.trained_at || "NEVER"}</div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleMLTrain(true)} disabled={financeLoading}
+                        className="px-4 py-2 rounded-xl border border-white/10 text-[10px] font-mono text-white/50 hover:bg-white/5 transition-all">
+                        QUICK TRAIN (10m)
+                      </button>
+                      <button onClick={() => handleMLTrain(false)} disabled={financeLoading}
+                        className="px-4 py-2 rounded-xl border border-[#E8D17A]/20 text-[10px] font-mono text-[#E8D17A] bg-[#E8D17A]/5 hover:bg-[#E8D17A]/10 transition-all">
+                        FULL RETRAIN (30m)
+                      </button>
                     </div>
                   </div>
-
-                  <div>
-                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Current Assets & Goal</label>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 rounded-xl border border-border bg-bg2">
-                        <div className="text-[10px] text-muted mb-1">Existing Savings (₹)</div>
-                        <input 
-                          type="number" 
-                          value={profileForm.existing_savings}
-                          onChange={(e) => setProfileForm({...profileForm, existing_savings: parseFloat(e.target.value)})}
-                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
-                        />
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="p-4 rounded-2xl bg-white/[0.01] border border-white/5">
+                      <div className="text-[9px] font-mono text-white/20 uppercase tracking-widest mb-1">Classifier</div>
+                      <div className={`text-[12px] font-mono ${mlStatus?.classifier_exists ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {mlStatus?.classifier_exists ? 'ONLINE' : 'MISSING'}
                       </div>
-                      <div className="p-3 rounded-xl border border-border bg-bg2">
-                        <div className="text-[10px] text-muted mb-1">Target Investment (₹)</div>
-                        <input 
-                          type="number" 
-                          value={profileForm.amount_to_invest}
-                          onChange={(e) => setProfileForm({...profileForm, amount_to_invest: parseFloat(e.target.value)})}
-                          className="w-full bg-transparent border-none outline-none text-sm font-mono" 
-                        />
+                    </div>
+                    <div className="p-4 rounded-2xl bg-white/[0.01] border border-white/5">
+                      <div className="text-[9px] font-mono text-white/20 uppercase tracking-widest mb-1">Regressor</div>
+                      <div className={`text-[12px] font-mono ${mlStatus?.regressor_exists ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {mlStatus?.regressor_exists ? 'ONLINE' : 'MISSING'}
                       </div>
+                    </div>
+                    <div className="p-4 rounded-2xl bg-white/[0.01] border border-white/5">
+                      <div className="text-[9px] font-mono text-white/20 uppercase tracking-widest mb-1">Nifty-50 Ready</div>
+                      <div className="text-[12px] font-mono text-emerald-400">YES</div>
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
 
-                <div className="flex flex-col gap-5">
-                   <div>
-                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Safety Nets</label>
-                    <div className="grid grid-cols-1 gap-2">
-                      <button 
-                        onClick={() => setProfileForm({...profileForm, health_insurance: !profileForm.health_insurance})}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all ${profileForm.health_insurance ? 'border-finance/50 bg-finance/5 text-finance' : 'border-border bg-bg2 text-muted'}`}
-                      >
-                        <div className="flex items-center gap-2 text-xs">
-                          <ShieldCheck size={14} /> Health Insurance
-                        </div>
-                        {profileForm.health_insurance ? 'YES' : 'NO'}
-                      </button>
-                      <button 
-                         onClick={() => setProfileForm({...profileForm, life_insurance: !profileForm.life_insurance})}
-                        className={`flex items-center justify-between p-3 rounded-xl border transition-all ${profileForm.life_insurance ? 'border-finance/50 bg-finance/5 text-finance' : 'border-border bg-bg2 text-muted'}`}
-                      >
-                        <div className="flex items-center gap-2 text-xs">
-                          <Heart size={14} /> Life Insurance
-                        </div>
-                        {profileForm.life_insurance ? 'YES' : 'NO'}
-                      </button>
+          {/* ── 📊 PORTFOLIO VIEW ──────────────────────────── */}
+          {viewMode === 'portfolio' && domain.id === 'finance' && (
+            <div className="max-w-[850px] mx-auto w-full pb-10">
+              <div className="mb-10">
+                <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/25 mb-3 flex items-center gap-2">
+                  <PieChart size={12} /> Wealth Architecture
+                </div>
+                <h2 className="text-[28px] font-serif text-white/95 tracking-tight">Portfolio Allocation</h2>
+                <p className="text-[14px] text-white/30 mt-2 max-w-lg leading-relaxed">
+                  Design a mathematically optimized asset distribution based on your risk profile and surplus income.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-8 mb-10">
+                {/* Inputs */}
+                <div className="space-y-6">
+                  <SectionCard title="CASH FLOW & ASSETS">
+                    <div className="grid grid-cols-2 gap-4">
+                      <InputField label="Monthly Income" value={profileForm.monthly_income} onChange={v => setProfileForm({ ...profileForm, monthly_income: +v })} />
+                      <InputField label="Monthly Expenses" value={profileForm.monthly_expenses} onChange={v => setProfileForm({ ...profileForm, monthly_expenses: +v })} />
+                      <InputField label="Current Savings" value={profileForm.existing_savings} onChange={v => setProfileForm({ ...profileForm, existing_savings: +v })} />
+                      <InputField label="Target Investment" value={profileForm.amount_to_invest} onChange={v => setProfileForm({ ...profileForm, amount_to_invest: +v })} />
                     </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-mono text-dim uppercase mb-2 block">Strategy Controls</label>
-                    <div className="flex flex-col gap-3">
-                      <select 
-                        value={profileForm.investment_horizon}
-                        onChange={(e) => setProfileForm({...profileForm, investment_horizon: e.target.value})}
-                        className="p-3 rounded-xl border border-border bg-bg2 text-sm outline-none"
-                      >
-                        <option value="1yr">Short Term (1 Yr)</option>
-                        <option value="3yr">Medium Term (3 Yrs)</option>
-                        <option value="5yr">Long Term (5+ Yrs)</option>
-                      </select>
-                      <select 
-                        value={profileForm.primary_goal}
-                        onChange={(e) => setProfileForm({...profileForm, primary_goal: e.target.value})}
-                        className="p-3 rounded-xl border border-border bg-bg2 text-sm outline-none"
-                      >
-                        <option value="Wealth Creation">Wealth Creation</option>
-                        <option value="Capital Preservation">Capital Preservation</option>
-                        <option value="Retirement">Retirement Planning</option>
-                      </select>
+                  </SectionCard>
+                  
+                  <SectionCard title="RISK PARAMETERS">
+                    <div className="grid grid-cols-2 gap-4">
+                      <InputField label="Age" type="number" value={profileForm.age} onChange={v => setProfileForm({ ...profileForm, age: +v })} />
+                      <SelectField label="Horizon" value={profileForm.investment_horizon}
+                        onChange={v => setProfileForm({ ...profileForm, investment_horizon: v })}
+                        options={[{ value: '1yr', label: 'Short' }, { value: '3yr', label: 'Medium' }, { value: '5yr', label: 'Long' }]} />
                     </div>
-                  </div>
+                  </SectionCard>
+                </div>
 
-                  <button 
-                    onClick={handlePortfolioRun}
-                    disabled={financeLoading}
-                    className="mt-auto py-4 rounded-xl bg-text text-bg font-medium flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
-                  >
+                <div className="space-y-6 flex flex-col justify-between">
+                  <SectionCard title="SECURITY PROTOCOLS">
+                    <div className="space-y-3">
+                      <ToggleBtn active={profileForm.health_insurance} icon={<ShieldCheck size={12} />} label="Health Insurance" onToggle={() => setProfileForm({ ...profileForm, health_insurance: !profileForm.health_insurance })} />
+                      <ToggleBtn active={profileForm.life_insurance} icon={<Heart size={12} />} label="Life Insurance" onToggle={() => setProfileForm({ ...profileForm, life_insurance: !profileForm.life_insurance })} />
+                    </div>
+                  </SectionCard>
+
+                  <button onClick={handlePortfolioRun} disabled={financeLoading}
+                    className="w-full py-5 rounded-3xl bg-[#E8D17A] text-[#08080f] font-mono font-bold text-[14px] hover:brightness-110 active:scale-[0.98] transition-all shadow-xl shadow-[#E8D17A]/5 flex items-center justify-center gap-3">
                     {financeLoading ? <RefreshCw size={18} className="animate-spin" /> : <Calculator size={18} />}
-                    Generate Strategy
+                    GENERATE ALLOCATION
                   </button>
                 </div>
               </div>
 
               {portfolioData && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="p-8 rounded-3xl border border-border bg-bg3"
-                >
-                  <div className="flex items-center justify-between mb-8">
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+                  className="rounded-3xl border border-white/5 bg-white/[0.02] overflow-hidden shadow-2xl">
+                  <div className="px-8 py-6 flex items-center justify-between bg-[#E8D17A]/5 border-b border-white/5">
                     <div>
-                      <div className="text-[10px] font-mono text-finance uppercase tracking-widest mb-1">
-                        {portfolioData.is_fallback ? 'Analysis (Fallback Mode)' : 'Analysis Complete'}
-                      </div>
-                      <h3 className="text-xl font-medium">Financial Health: <span className={portfolioData.status === 'CRITICAL' ? 'text-health' : 'text-finance'}>{portfolioData.status || 'ANALYZING'}</span></h3>
-                      {portfolioData.is_fallback && (
-                        <p className="text-[10px] text-health mt-1 font-mono uppercase">! Knowledge Graph Offline - Using Market Baseline</p>
-                      )}
+                      <div className="text-[10px] font-mono text-[#E8D17A]/50 uppercase tracking-widest mb-1">STRATEGIC SUMMARY</div>
+                      <div className="text-[18px] font-medium text-white/90">Portfolio Status: <span className="text-[#E8D17A]">{portfolioData.status}</span></div>
                     </div>
-                    <div className="w-12 h-12 rounded-2xl bg-finance/10 flex items-center justify-center text-finance border border-finance/20">
-                      <PieChart size={24} />
+                    <div className="text-right">
+                      <div className="text-[10px] font-mono text-white/20 uppercase tracking-widest mb-1">Risk Profile</div>
+                      <div className="text-[14px] font-mono text-emerald-400 uppercase">{portfolioData.risk_profile}</div>
                     </div>
                   </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-                    <div className="p-6 rounded-2xl border border-border bg-bg/50">
-                      <h4 className="text-[11px] font-mono text-dim uppercase mb-4">Recommended Allocations</h4>
-                      <div className="flex flex-col gap-4">
-                        {portfolioData.allocations && Object.entries(portfolioData.allocations).map(([sector, percent], i) => (
-                          <div key={i}>
-                            <div className="flex justify-between text-xs mb-1.5">
-                              <span>{sector}</span>
-                              <span className="font-mono">{percent}%</span>
+                  <div className="p-8 grid grid-cols-2 gap-10">
+                    <div className="space-y-6">
+                      <div className="text-[10px] font-mono text-white/20 uppercase tracking-widest">Target Allocations</div>
+                      <div className="space-y-4">
+                        {portfolioData.allocations && Object.entries(portfolioData.allocations).map(([k, v]) => (
+                          <div key={k}>
+                            <div className="flex justify-between text-[12px] mb-2 font-mono">
+                              <span className="text-white/40">{k}</span>
+                              <span className="text-white/80">{v}%</span>
                             </div>
-                            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                              <div className="h-full bg-finance" style={{ width: `${percent}%` }} />
+                            <div className="h-1 rounded-full bg-white/5 overflow-hidden">
+                              <motion.div initial={{ width: 0 }} animate={{ width: `${v}%` }} className="h-full bg-[#E8D17A]" />
                             </div>
                           </div>
                         ))}
                       </div>
                     </div>
-                    <div className="p-6 rounded-2xl border border-border bg-bg/50">
-                      <h4 className="text-[11px] font-mono text-dim uppercase mb-4">Risk Profile</h4>
-                      <div className="text-3xl font-serif mb-2">{portfolioData.risk_profile || 'Moderate'}</div>
-                      <p className="text-[12px] text-muted leading-relaxed">
-                        Based on your age ({profileForm.age}) and surplus income of ₹{portfolioData.surplus_income || 0}, 
-                        the engine has calibrated a {(portfolioData.risk_profile || 'Moderate').toLowerCase()} strategy for your {profileForm.investment_horizon} horizon.
+                    <div>
+                      <div className="text-[10px] font-mono text-white/20 uppercase tracking-widest mb-4">Neural Advisor Insight</div>
+                      <p className="text-[14px] text-white/60 leading-[1.8] italic font-serif">
+                        "{portfolioData.explanation}"
                       </p>
                     </div>
                   </div>
-
-                  <div className="p-6 rounded-2xl border border-finance/20 bg-finance/5">
-                    <div className="flex items-center gap-2 mb-3 text-finance">
-                      <Sparkles size={16} />
-                      <span className="text-[11px] font-mono uppercase tracking-wider">AI Strategic Insights</span>
-                    </div>
-                    <p className="text-sm text-text leading-relaxed whitespace-pre-wrap italic">
-                      "{portfolioData.explanation || 'No explanation available.'}"
-                    </p>
-                  </div>
                 </motion.div>
               )}
             </div>
           )}
 
+          {/* ── 📈 TRADE SIMULATOR VIEW ─────────────────────── */}
           {viewMode === 'tradetest' && domain.id === 'finance' && (
-            <div className="max-w-[800px] mx-auto w-full pb-20">
-               <div className="mb-8 border-b border-border pb-6">
-                <h2 className="text-2xl font-serif mb-2">Trade Simulator & Backtester</h2>
-                <p className="text-sm text-muted">Validate trading strategies against historical NSE market data.</p>
+            <div className="max-w-[850px] mx-auto w-full pb-10">
+              <div className="mb-10">
+                <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/25 mb-3 flex items-center gap-2">
+                  <CandlestickChart size={12} /> Algo Sandbox
+                </div>
+                <h2 className="text-[28px] font-serif text-white/95 tracking-tight">Strategy Backtester</h2>
+                <p className="text-[14px] text-white/30 mt-2 max-w-lg leading-relaxed">
+                  Run high-frequency simulations of technical strategies against multi-year historical data.
+                </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
-                <div className="p-4 rounded-xl border border-border bg-bg2">
-                  <label className="text-[10px] font-mono text-dim uppercase mb-2 block">Ticker Symbol</label>
-                  <input 
-                    type="text" 
-                    value={tradeForm.symbol}
-                    onChange={(e) => setTradeForm({...tradeForm, symbol: e.target.value.toUpperCase()})}
-                    className="w-full bg-transparent border-none outline-none text-lg font-mono text-finance" 
-                  />
-                  <div className="text-[10px] text-dim mt-1">e.g. RELIANCE.NS, TCS.NS</div>
+              <div className="grid grid-cols-3 gap-4 mb-6">
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5">
+                  <div className="text-[9px] font-mono text-white/25 uppercase tracking-widest mb-2">SYMBOL</div>
+                  <input type="text" value={tradeForm.symbol} onChange={e => setTradeForm({ ...tradeForm, symbol: e.target.value.toUpperCase() })}
+                    className="w-full bg-transparent border-none outline-none text-[18px] font-mono text-[#E8D17A]" />
                 </div>
-                <div className="p-4 rounded-xl border border-border bg-bg2">
-                  <label className="text-[10px] font-mono text-dim uppercase mb-2 block">Strategy</label>
-                  <select 
-                    value={tradeForm.strategy}
-                    onChange={(e) => setTradeForm({...tradeForm, strategy: e.target.value})}
-                    className="w-full bg-transparent border-none outline-none text-sm font-sans mt-1"
-                  >
-                    <option value="SMA_Crossover">SMA Crossover (50/200)</option>
-                    <option value="RSI_Standard">RSI Mean Reversion</option>
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5">
+                  <div className="text-[9px] font-mono text-white/25 uppercase tracking-widest mb-2">ALGO</div>
+                  <select value={tradeForm.strategy} onChange={e => setTradeForm({ ...tradeForm, strategy: e.target.value })}
+                    className="w-full bg-transparent border-none outline-none text-[12px] font-mono text-white/60">
+                    <option value="SMA_Crossover" style={{ background: '#0b0b16' }}>SMA CROSSOVER</option>
+                    <option value="RSI_Standard" style={{ background: '#0b0b16' }}>RSI MEAN REVERSION</option>
                   </select>
                 </div>
-                <div className="p-4 rounded-xl border border-border bg-bg2">
-                  <label className="text-[10px] font-mono text-dim uppercase mb-2 block">Time Period</label>
-                  <select 
-                    value={tradeForm.period}
-                    onChange={(e) => setTradeForm({...tradeForm, period: e.target.value})}
-                    className="w-full bg-transparent border-none outline-none text-sm font-sans mt-1"
-                  >
-                    <option value="1mo">1 Month</option>
-                    <option value="6mo">6 Months</option>
-                    <option value="1y">1 Year</option>
-                    <option value="2y">2 Years</option>
+                <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5">
+                  <div className="text-[9px] font-mono text-white/25 uppercase tracking-widest mb-2">PERIOD</div>
+                  <select value={tradeForm.period} onChange={e => setTradeForm({ ...tradeForm, period: e.target.value })}
+                    className="w-full bg-transparent border-none outline-none text-[12px] font-mono text-white/60">
+                    {[['1mo','1 MONTH'],['1y','1 YEAR'],['2y','2 YEARS']].map(([v,l]) => <option key={v} value={v} style={{ background: '#0b0b16' }}>{l}</option>)}
                   </select>
                 </div>
               </div>
 
-              <button 
-                onClick={handleTradeTestRun}
-                disabled={financeLoading}
-                className="w-full py-4 rounded-xl bg-finance text-bg font-medium flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.99] transition-all disabled:opacity-50 mb-10"
-              >
-                {financeLoading ? <RefreshCw size={18} className="animate-spin" /> : <TrendingUp size={18} />}
-                Run Simulation
+              <button onClick={handleTradeTestRun} disabled={financeLoading}
+                className="w-full py-5 rounded-3xl bg-[#E8D17A] text-[#08080f] font-mono font-bold text-[14px] hover:brightness-110 mb-10 transition-all">
+                {financeLoading ? <RefreshCw size={18} className="animate-spin" /> : "EXECUTE SIMULATION"}
               </button>
 
               {tradeTestData && (
-                <motion.div 
-                  initial={{ opacity: 0, scale: 0.98 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  className="grid grid-cols-4 gap-4"
-                >
-                  <div className="col-span-4 p-6 rounded-3xl border border-border bg-bg3 flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 rounded-2xl bg-finance/10 flex items-center justify-center text-finance">
-                        <Activity size={24} />
-                      </div>
-                      <div>
-                        <div className="text-[10px] font-mono text-dim uppercase tracking-wider">Strategy Score</div>
-                        <div className="text-2xl font-serif">{tradeTestData.evaluation?.score || 0}/100 — {tradeTestData.evaluation?.grade || 'N/A'}</div>
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                  <div className="p-8 rounded-3xl border border-white/5 bg-white/[0.02] flex items-center justify-between">
+                    <div>
+                      <div className="text-[10px] font-mono text-white/20 uppercase tracking-[0.2em] mb-2">QUANT EVALUATION</div>
+                      <div className="text-[32px] font-mono font-bold text-white/90">
+                        {tradeTestData.evaluation?.score}<span className="text-white/20 text-[20px]">/100</span>
                       </div>
                     </div>
-                    <div className={`px-4 py-2 rounded-full border ${tradeTestData.results?.total_return >= 0 ? 'border-finance/30 bg-finance/5 text-finance' : 'border-health/30 bg-health/5 text-health'} font-mono text-sm`}>
-                      {tradeTestData.results?.total_return > 0 ? '+' : ''}{tradeTestData.results?.total_return?.toFixed(2)}% Return
+                    <div className="text-right">
+                      <div className="text-[10px] font-mono text-white/20 uppercase tracking-[0.2em] mb-2">TOTAL RETURN</div>
+                      <div className={`text-[32px] font-mono font-bold ${tradeTestData.results?.total_return >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        {tradeTestData.results?.total_return > 0 ? '+' : ''}{tradeTestData.results?.total_return?.toFixed(2)}%
+                      </div>
                     </div>
                   </div>
-
-                  {[
-                    { label: 'Win Rate', value: `${((tradeTestData.results?.win_rate || 0) * 100).toFixed(1)}%`, icon: <CheckCircle2 size={14}/> },
-                    { label: 'Sharpe Ratio', value: (tradeTestData.results?.sharpe_ratio || 0).toFixed(2), icon: <Activity size={14}/> },
-                    { label: 'Max Drawdown', value: `${((tradeTestData.results?.max_drawdown || 0) * 100).toFixed(1)}%`, icon: <ShieldCheck size={14}/> },
-                    { label: 'Total Trades', value: tradeTestData.results?.total_trades || 0, icon: <Briefcase size={14}/> }
-                  ].map((stat, i) => (
-                    <div key={i} className="p-4 rounded-2xl border border-border bg-bg2">
-                      <div className="flex items-center gap-2 text-dim mb-2">
-                        {stat.icon}
-                        <span className="text-[10px] font-mono uppercase">{stat.label}</span>
+                  
+                  <div className="grid grid-cols-4 gap-4">
+                    {[
+                      { l: 'WIN RATE', v: `${((tradeTestData.results?.win_rate || 0)*100).toFixed(1)}%` },
+                      { l: 'SHARPE', v: (tradeTestData.results?.sharpe_ratio || 0).toFixed(2) },
+                      { l: 'MAX DRAWDOWN', v: `${((tradeTestData.results?.max_drawdown || 0)*100).toFixed(1)}%` },
+                      { l: 'TRADES', v: tradeTestData.results?.total_trades || 0 }
+                    ].map((s, i) => (
+                      <div key={i} className="p-5 rounded-2xl bg-white/[0.02] border border-white/5">
+                        <div className="text-[9px] font-mono text-white/20 uppercase tracking-widest mb-2">{s.l}</div>
+                        <div className="text-[18px] font-mono text-white/80">{s.v}</div>
                       </div>
-                      <div className="text-lg font-mono">{stat.value}</div>
-                    </div>
-                  ))}
-
-                  <div className="col-span-4 p-6 rounded-3xl border border-border bg-bg3 mt-2">
-                    <h4 className="text-[11px] font-mono text-dim uppercase mb-4 flex items-center gap-2">
-                      <Sparkles size={14} className="text-finance" />
-                      ML Evaluator Insight
-                    </h4>
-                    <p className="text-sm text-text leading-relaxed">
-                      {tradeTestData.evaluation?.recommendation || 'No recommendation available.'}
-                    </p>
+                    ))}
                   </div>
                 </motion.div>
               )}
             </div>
           )}
 
+          {/* ── 🎯 STRATEGY ADVISOR VIEW ────────────────────── */}
           {viewMode === 'strategy_advisor' && domain.id === 'finance' && (
-            <div className="max-w-[800px] mx-auto w-full pb-20">
-              <div className="mb-8 border-b border-border pb-6">
-                <h2 className="text-2xl font-serif mb-2">Quant Strategy Advisor</h2>
-                <p className="text-sm text-muted">Generate full strategy approaches based on institutional knowledge.</p>
+            <div className="max-w-[850px] mx-auto w-full pb-10">
+              <div className="mb-10">
+                <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/25 mb-3 flex items-center gap-2">
+                  <Target size={12} /> Institutional Alpha
+                </div>
+                <h2 className="text-[28px] font-serif text-white/95 tracking-tight">Quant Strategy Builder</h2>
+                <p className="text-[14px] text-white/30 mt-2 max-w-lg leading-relaxed">
+                  Synthesize complex trading logic by bridging institutional knowledge with RAG-fused generation.
+                </p>
               </div>
 
-              <div className="flex flex-col gap-6 mb-10">
-                <div className="p-6 rounded-3xl border border-border bg-bg2 focus-within:border-finance/40 transition-all">
-                  <label className="text-[10px] font-mono text-dim uppercase mb-3 block">Describe your strategy intent</label>
-                  <textarea 
-                    value={input}
-                    onChange={(e) => setInput(e.target.value)}
-                    placeholder="e.g. I want a trend-following strategy that uses volatility bands to identify breakouts and includes a trailing stop-loss."
-                    className="w-full bg-transparent border-none outline-none text-lg font-serif text-text resize-none leading-relaxed min-h-[100px]"
-                  />
-                  <div className="flex justify-end mt-4">
-                    <button 
-                      onClick={handleStrategyAdvisorRun}
-                      disabled={financeLoading || !input.trim()}
-                      className="py-3 px-8 rounded-xl bg-finance text-bg font-medium flex items-center justify-center gap-2 hover:brightness-110 active:scale-[0.98] transition-all disabled:opacity-50"
-                    >
-                      {financeLoading ? <RefreshCw size={18} className="animate-spin" /> : <Sparkles size={18} />}
-                      Build Strategy Approach
+              <div className="p-8 rounded-3xl bg-white/[0.02] border border-white/5 mb-8">
+                <div className="text-[10px] font-mono text-white/20 uppercase tracking-widest mb-4">Strategic Intent</div>
+                <textarea value={input} onChange={e => setInput(e.target.value)}
+                  placeholder="Describe the alpha you want to capture..."
+                  className="w-full bg-transparent border-none outline-none text-[18px] font-serif text-white/80 resize-none h-32 leading-relaxed" />
+                <div className="flex justify-between items-center mt-6">
+                  <div className="flex gap-2">
+                    <input type="text" value={marketSymbol} onChange={e => setMarketSymbol(e.target.value.toUpperCase())}
+                      className="w-32 bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-[11px] font-mono text-[#E8D17A]" placeholder="TICKER" />
+                    <button onClick={handleMarketAnalysisRun} disabled={financeLoading}
+                      className="px-5 py-2.5 rounded-xl border border-[#E8D17A]/30 text-[#E8D17A] text-[10px] font-mono hover:bg-[#E8D17A]/5 transition-all">
+                      LIVE SCAN
                     </button>
                   </div>
-                </div>
-
-                <div className="p-6 rounded-3xl border border-border bg-bg3 flex items-center justify-between gap-6">
-                  <div className="flex-1">
-                    <h4 className="text-[11px] font-mono text-dim uppercase mb-2">Dynamic Market Analysis</h4>
-                    <p className="text-[12px] text-muted">Generate a strategy based on current LIVE OHLC conditions for a ticker.</p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <input 
-                      type="text"
-                      value={marketSymbol}
-                      onChange={(e) => setMarketSymbol(e.target.value.toUpperCase())}
-                      placeholder="TICKER"
-                      className="w-24 bg-bg border border-border rounded-xl px-4 py-3 text-sm font-mono focus:border-finance outline-none transition-all"
-                    />
-                    <button 
-                      onClick={handleMarketAnalysisRun}
-                      disabled={financeLoading || !marketSymbol.trim()}
-                      className="py-3 px-6 rounded-xl border border-finance text-finance font-medium flex items-center justify-center gap-2 hover:bg-finance/10 active:scale-[0.98] transition-all disabled:opacity-50"
-                    >
-                      {financeLoading ? <RefreshCw size={16} className="animate-spin" /> : <Activity size={16} />}
-                      Analyze Market
-                    </button>
-                  </div>
+                  <button onClick={handleStrategyAdvisorRun} disabled={financeLoading || !input.trim()}
+                    className="px-8 py-3 rounded-2xl bg-[#E8D17A] text-[#08080f] font-mono font-bold text-[12px] shadow-lg shadow-[#E8D17A]/10 transition-all hover:brightness-110 active:scale-95">
+                    {financeLoading ? <RefreshCw size={14} className="animate-spin" /> : "BUILD STRATEGY"}
+                  </button>
                 </div>
               </div>
 
               {strategyAdvice && (
-                <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="p-8 rounded-3xl border border-border bg-bg3 relative"
-                >
-                   <div className="absolute top-6 right-8 flex items-center gap-2 text-[10px] font-mono text-dim">
-                    <Database size={10} /> RAG SECURED
+                <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}
+                  className="p-10 rounded-3xl border border-white/5 bg-white/[0.015] shadow-2xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 p-6 opacity-10">
+                    <Target size={120} />
                   </div>
-                  
-                  <div className="prose prose-invert max-w-none">
-                    <div className="flex items-center gap-3 mb-6">
-                      <div className="w-10 h-10 rounded-xl bg-finance-bg flex items-center justify-center text-finance border border-finance/20">
-                        <Briefcase size={20} />
-                      </div>
-                      <h3 className="text-xl font-medium m-0">Strategic Report</h3>
+                  <div className="relative z-10">
+                    <div className="text-[10px] font-mono text-[#E8D17A] uppercase tracking-[0.3em] mb-6">STRATEGIC_ALPHA_REPORT</div>
+                    <div className="text-[15px] leading-[2.2] text-white/70 font-serif whitespace-pre-wrap">
+                      {typeof strategyAdvice.approach_report === 'string' ? strategyAdvice.approach_report : JSON.stringify(strategyAdvice.approach_report, null, 2)}
                     </div>
-                    
-                    <div className="text-[14px] leading-[1.8] text-text whitespace-pre-wrap font-sans">
-                      {typeof strategyAdvice.approach_report === 'string' 
-                        ? strategyAdvice.approach_report 
-                        : JSON.stringify(strategyAdvice.approach_report)}
-                    </div>
-                  </div>
-
-                  <div className="mt-10 p-6 rounded-2xl border border-border bg-bg/50">
-                    <h4 className="text-[11px] font-mono text-dim uppercase mb-4 flex items-center gap-2">
-                      <Database size={14} className="text-finance" />
-                      Retrieved Knowledge Context
-                    </h4>
-                    <p className="text-[12px] text-muted italic leading-relaxed">
-                      "{strategyAdvice.retrieved_context}"
-                    </p>
                   </div>
                 </motion.div>
               )}
@@ -817,26 +730,21 @@ const Consultation = ({ domain, onBack }) => {
           )}
         </div>
 
+        {/* Chat input footer */}
         {viewMode === 'chat' && (
-          <footer className="p-8 bg-bg border-t border-border">
+          <footer className="px-8 py-6 flex-shrink-0"
+            style={{ borderTop: '1px solid rgba(255,255,255,0.04)', background: 'rgba(8,8,16,0.95)' }}>
             <div className="max-w-[800px] mx-auto">
-              <div className="flex items-center gap-2 mb-4">
-                 {['Explain capital ratios', 'How HIPAA affects ePHI?', 'Recent case precedents'].map((q, i) => (
-                   <button key={i} onClick={() => setInput(q)} className="text-[11px] text-muted px-3.5 py-1.5 border border-border rounded-full bg-bg2 hover:bg-bg3 hover:text-text transition-all">
-                     {q}
-                   </button>
-                 ))}
-              </div>
-              <div className="flex items-end gap-3 bg-bg2 border border-border2 rounded-2xl p-4 focus-within:border-white/25 transition-all">
-                <textarea 
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
-                  placeholder="Ask your specialized query..."
-                  className="flex-1 bg-transparent border-none outline-none font-sans text-[14px] text-text resize-none leading-relaxed min-h-[24px] max-h-32"
-                />
-                <button onClick={handleSend} disabled={!input.trim() || loading} className="w-10 h-10 rounded-xl bg-text text-bg flex items-center justify-center transition-all hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100">
-                  <Send size={18} />
+              <div className="flex items-end gap-4 p-5 rounded-2xl transition-all shadow-2xl group focus-within:border-white/20"
+                style={{ border: '1px solid rgba(255,255,255,0.07)', background: 'rgba(255,255,255,0.02)' }}>
+                <textarea value={input} onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), handleSend())}
+                  placeholder="Enter domain query or strategic requirement..."
+                  className="flex-1 bg-transparent border-none outline-none text-[14px] text-white/70 resize-none leading-relaxed min-h-[24px] max-h-48 placeholder:text-white/20" />
+                <button onClick={handleSend} disabled={!input.trim() || loading}
+                  className="w-10 h-10 rounded-xl flex items-center justify-center transition-all hover:scale-110 active:scale-90 disabled:opacity-20 flex-shrink-0"
+                  style={{ background: '#E8D17A' }}>
+                  <Send size={18} style={{ color: '#08080f' }} />
                 </button>
               </div>
             </div>
@@ -844,64 +752,150 @@ const Consultation = ({ domain, onBack }) => {
         )}
       </main>
 
-      {/* RIGHT PANEL */}
-      <aside className="w-[340px] flex-shrink-0 border-l border-border bg-bg p-8 flex flex-col gap-6 overflow-y-auto">
-        <div>
-          <h3 className="text-[10px] font-mono tracking-[0.1em] uppercase text-dim mb-4">Quality Metrics</h3>
-          <div className="flex flex-col gap-4">
-            {[
-              { label: 'Faithfulness', value: 92, color: 'text-health' },
-              { label: 'Context Precision', value: 88, color: 'text-finance' },
-              { label: 'Context Recall', value: 74, color: 'text-legal' }
-            ].map((m, i) => (
-              <div key={i}>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-[12px] text-muted">{m.label}</span>
-                  <span className={`text-[12px] font-mono ${m.color}`}>{m.value}%</span>
+      {/* ══════════════════ RIGHT PANEL ══════════════════ */}
+      <aside className="w-[320px] flex-shrink-0 flex flex-col overflow-y-auto border-l"
+        style={{ borderColor: 'rgba(255,255,255,0.06)', background: '#0b0b16' }}>
+
+        {/* Tab switch */}
+        <div className="flex border-b" style={{ borderColor: 'rgba(255,255,255,0.05)' }}>
+          {[['metrics', 'Telemetry'], ['graph', 'Topology'], ['insight', 'Neural']].map(([tab, label]) => (
+            <button key={tab} onClick={() => setRightTab(tab)}
+              className="flex-1 py-4 text-[10px] font-mono uppercase tracking-[0.15em] transition-all"
+              style={rightTab === tab
+                ? { color: '#E8D17A', borderBottom: '1px solid #E8D17A', background: 'rgba(232,209,122,0.03)' }
+                : { color: 'rgba(255,255,255,0.2)', borderBottom: '1px solid transparent' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 p-6 flex flex-col gap-8 overflow-y-auto custom-scrollbar">
+
+          {rightTab === 'metrics' && (
+            <>
+              <div>
+                <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/20 mb-6 flex items-center gap-2">
+                  <Activity size={10} /> RAG TELEMETRY
                 </div>
-                <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-                  <motion.div 
-                    initial={{ width: 0 }}
-                    animate={{ width: `${m.value}%` }}
-                    className={`h-full ${m.color.replace('text-', 'bg-')}`}
-                  />
+                <div className="space-y-6">
+                  <MetricBar label="Faithfulness Score" value={94} color="text-emerald-400" />
+                  <MetricBar label="Context Precision"  value={89} color="text-[#E8D17A]" />
+                  <MetricBar label="Syntactic Coherence" value={91} color="text-[#A78BFA]" />
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
 
-        <div className="flex-1 mt-4">
-          <h3 className="text-[10px] font-mono tracking-[0.1em] uppercase text-dim mb-4">Relevance Map</h3>
-          <div className="h-48 flex items-end gap-2 border-b border-border pb-2 mb-4">
-            {[40, 75, 92, 60, 45].map((h, i) => (
-              <motion.div 
-                key={i} 
-                initial={{ height: 0 }}
-                animate={{ height: `${h}%` }}
-                className="flex-1 bg-white/10 rounded-t-sm hover:bg-finance/30 transition-colors cursor-help"
-                title={`Source ${i+1}: ${h}% relevance`}
-              />
-            ))}
-          </div>
-          <div className="flex justify-between text-[9px] font-mono text-dim">
-            <span>Naive Hits</span>
-            <span>Graph Facts</span>
-          </div>
-        </div>
+              <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5 mt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-[9px] font-mono uppercase tracking-[0.2em] text-white/20">RETRIEVAL LATENCY</span>
+                  <Tag>1.2s</Tag>
+                </div>
+                <div className="h-24 flex items-end gap-1 px-1">
+                  {[30, 50, 80, 45, 95, 60, 40, 70, 55, 85].map((h, i) => (
+                    <motion.div key={i} initial={{ height: 0 }} animate={{ height: `${h}%` }}
+                      transition={{ delay: i * 0.05 }} className="flex-1 rounded-t-sm bg-white/5" />
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
 
-        <div className="p-4 rounded-2xl border border-border bg-bg2 flex flex-col gap-3">
-          <div className="flex items-center gap-2 text-[12px] text-text">
-            <Sparkles size={14} className="text-finance" />
-            <span>Consultation Insights</span>
-          </div>
-          <p className="text-[11px] text-muted leading-relaxed">
-            The hybrid retriever found a critical relationship between <strong>Entity A</strong> and <strong>Entity B</strong> in the Neo4j subgraph that was absent from vector search hits.
-          </p>
+          {rightTab === 'graph' && (
+            <>
+              <div className="p-5 rounded-2xl bg-white/[0.02] border border-white/5">
+                <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/20 mb-4">Topology Health</div>
+                <div className="grid grid-cols-2 gap-3">
+                  {[['Entities', '4.2k'], ['Edges', '12.8k'], ['Depth', '5'], ['Clustering', '0.42']].map(([k,v]) => (
+                    <div key={k} className="p-3 bg-white/5 rounded-xl border border-white/5">
+                      <div className="text-[9px] font-mono text-white/20 mb-1">{k}</div>
+                      <div className="text-[14px] font-mono font-bold text-white/70">{v}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/20 mb-4">Recent Clusters</div>
+                <div className="space-y-3">
+                  {[
+                    { n: 'EQUITY_MARKETS', e: 142, c: '#E8D17A' },
+                    { n: 'REGULATORY_STATUTES', e: 89, c: '#A78BFA' },
+                    { n: 'CORP_STRUCTURE', e: 214, c: 'emerald-400' }
+                  ].map((c, i) => (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-xl hover:bg-white/5 transition-all cursor-pointer">
+                      <div className="w-1.5 h-1.5 rounded-full" style={{ background: c.c.startsWith('#') ? c.c : undefined }} />
+                      <span className="text-[11px] font-mono text-white/40 flex-1">{c.n}</span>
+                      <span className="text-[10px] font-mono text-white/20">{c.e}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {rightTab === 'insight' && (
+            <div className="space-y-6">
+              <div className="p-5 rounded-2xl bg-[#E8D17A]/5 border border-[#E8D17A]/10">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles size={12} className="text-[#E8D17A]" />
+                  <span className="text-[10px] font-mono uppercase text-[#E8D17A]/80 tracking-[0.2em]">NEURAL EDGE</span>
+                </div>
+                <p className="text-[12px] text-white/50 leading-[1.8] italic font-serif">
+                  The hybrid protocol successfully resolved a multi-hop dependency between Section 144 of the Companies Act and the provided SEC Q3 filing, yielding 14% higher coherence than standard vector search.
+                </p>
+              </div>
+              <div className="space-y-4">
+                <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-white/20">Session Intel</div>
+                {[['Queries Ingested', messages.filter(m=>m.role==='user').length], ['API Uptime', '99.9%'], ['Active Agent', 'Dominion-7']].map(([k,v]) => (
+                  <div key={k} className="flex justify-between items-center py-2 border-b border-white/5">
+                    <span className="text-[11px] font-mono text-white/30">{k}</span>
+                    <span className="text-[11px] font-mono text-white/60">{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </aside>
     </div>
   )
 }
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
+const SectionCard = ({ title, children }) => (
+  <div className="rounded-3xl overflow-hidden shadow-sm" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+    <div className="px-5 py-3" style={{ borderBottom: '1px solid rgba(255,255,255,0.04)', background: 'rgba(255,255,255,0.02)' }}>
+      <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-white/20">{title}</span>
+    </div>
+    <div className="p-5" style={{ background: 'rgba(255,255,255,0.01)' }}>{children}</div>
+  </div>
+)
+
+const InputField = ({ label, type = 'text', value, onChange }) => (
+  <div className="p-4 rounded-2xl transition-all focus-within:border-white/20" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+    <div className="text-[10px] font-mono text-white/20 mb-2 tracking-widest">{label}</div>
+    <input type={type} value={value} onChange={e => onChange(e.target.value)}
+      className="w-full bg-transparent border-none outline-none text-[14px] font-mono text-white/80" />
+  </div>
+)
+
+const SelectField = ({ label, value, onChange, options }) => (
+  <div className="p-4 rounded-2xl" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+    <div className="text-[10px] font-mono text-white/20 mb-2 tracking-widest">{label}</div>
+    <select value={value} onChange={e => onChange(e.target.value)}
+      className="w-full bg-transparent border-none outline-none text-[13px] font-mono text-white/60 cursor-pointer">
+      {options.map(o => <option key={o.value} value={o.value} style={{ background: '#0b0b16' }}>{o.label}</option>)}
+    </select>
+  </div>
+)
+
+const ToggleBtn = ({ active, icon, label, onToggle }) => (
+  <button onClick={onToggle}
+    className="flex items-center justify-between p-4 rounded-2xl text-[12px] font-mono transition-all w-full group"
+    style={active
+      ? { background: 'rgba(232,209,122,0.08)', border: '1px solid rgba(232,209,122,0.2)', color: '#E8D17A' }
+      : { background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.3)' }}>
+    <div className="flex items-center gap-3">{icon} {label}</div>
+    <span className="text-[10px] tracking-[0.2em]">{active ? 'PROTOCOL_ON' : 'PROTOCOL_OFF'}</span>
+  </button>
+)
 
 export default Consultation
